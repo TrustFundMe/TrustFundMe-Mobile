@@ -1,0 +1,5 @@
+package com.trustfund.trustfundme_mobile
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()
