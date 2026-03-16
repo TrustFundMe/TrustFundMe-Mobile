@@ -1,20 +1,24 @@
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 class ApiConfig {
-  // Đối với Android Emulator, dùng 10.0.2.2 thay cho localhost
-  // Đối với iOS Simulator hoặc thiết bị thật, dùng IP của máy tính
-  static const String baseUrl = "http://10.0.2.2"; 
+  static String get baseUrl => dotenv.get('API_BASE_URL', fallback: "http://10.0.2.2");
 
-  // Các cổng Service tương ứng với Backend hiện tại của bạn
-  static const String identityServicePort = "8081";
-  static const String campaignServicePort = "8082";
-  static const String fundraisingServicePort = "8083";
-  static const String chatServicePort = "8086";
+  static String get identityServicePort => dotenv.get('IDENTITY_PORT', fallback: "8081");
+  static String get campaignServicePort => dotenv.get('CAMPAIGN_PORT', fallback: "8082");
+  static String get mediaServicePort => dotenv.get('MEDIA_PORT', fallback: "8083");
+  static String get chatServicePort => dotenv.get('CHAT_PORT', fallback: "8086");
 
-  // Endpoints chi tiết
   static String get identityUrl => "$baseUrl:$identityServicePort/api";
   static String get campaignUrl => "$baseUrl:$campaignServicePort/api";
+  static String get mediaUrl => "$baseUrl:$mediaServicePort/api";
   
-  // Auth endpoints
+  // Supabase
+  static String get supabaseUrl => dotenv.get('SUPABASE_URL');
+  static String get supabaseKey => dotenv.get('SUPABASE_SERVICE_ROLE_KEY');
+  static String get supabaseBucket => dotenv.get('SUPABASE_BUCKET', fallback: "Avatars");
+  
   static String get loginEndpoint => "/auth/login";
   static String get registerEndpoint => "/auth/register";
-  static String get profileEndpoint => "/users/profile";
+  static String get userEndpoint => "/users";
+  static String get bankAccountEndpoint => "/bank-accounts";
 }
