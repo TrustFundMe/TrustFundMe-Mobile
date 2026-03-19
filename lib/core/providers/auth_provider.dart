@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import '../api/api_service.dart';
 import '../models/user_model.dart';
 import '../models/bank_account_model.dart';
+import '../utils/error_handler.dart';
 
 class AuthProvider with ChangeNotifier {
   final ApiService _apiService = ApiService();
@@ -31,11 +32,9 @@ class AuthProvider with ChangeNotifier {
         _isLoading = false;
         notifyListeners();
         return true;
-      } else {
-        _error = "Đăng nhập thất bại. Vui lòng kiểm tra lại thông tin.";
       }
     } catch (e) {
-      _error = "Có lỗi xảy ra: ${e.toString()}";
+      _error = ErrorHandler.handle(e);
     }
 
     _isLoading = false;
@@ -63,7 +62,7 @@ class AuthProvider with ChangeNotifier {
         return true;
       }
     } catch (e) {
-      _error = "Cập nhật thất bại: ${e.toString()}";
+      _error = ErrorHandler.handle(e);
     }
 
     _isLoading = false;
@@ -94,7 +93,7 @@ class AuthProvider with ChangeNotifier {
         return true;
       }
     } catch (e) {
-      _error = "Cập nhật ảnh đại diện thất bại: ${e.toString()}";
+      _error = ErrorHandler.handle(e);
     }
 
     _isLoading = false;
@@ -110,7 +109,7 @@ class AuthProvider with ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      print("Error fetching bank account: $e");
+      debugPrint("Error fetching bank account: $e");
     }
   }
 
@@ -140,7 +139,7 @@ class AuthProvider with ChangeNotifier {
         return true;
       }
     } catch (e) {
-      _error = "Lỗi lưu tài khoản ngân hàng: ${e.toString()}";
+      _error = ErrorHandler.handle(e);
     }
 
     _isLoading = false;

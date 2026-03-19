@@ -6,11 +6,13 @@ class ApiConfig {
   static String get identityServicePort => dotenv.get('IDENTITY_PORT', fallback: "8081");
   static String get campaignServicePort => dotenv.get('CAMPAIGN_PORT', fallback: "8082");
   static String get mediaServicePort => dotenv.get('MEDIA_PORT', fallback: "8083");
-  static String get chatServicePort => dotenv.get('CHAT_PORT', fallback: "8086");
+  static String get chatbotServicePort => dotenv.get('CHATBOT_PORT', fallback: "8086");
+  static String get aiServicePort => dotenv.get('AI_PORT', fallback: "8089");
 
   static String get identityUrl => "$baseUrl:$identityServicePort/api";
   static String get campaignUrl => "$baseUrl:$campaignServicePort/api";
   static String get mediaUrl => "$baseUrl:$mediaServicePort/api";
+  static String get aiUrl => "$baseUrl:$aiServicePort/api";
   
   // Supabase
   static String get supabaseUrl => dotenv.get('SUPABASE_URL');

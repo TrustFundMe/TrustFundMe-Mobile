@@ -8,8 +8,8 @@ class ApiService {
   final _storage = const FlutterSecureStorage();
 
   ApiService() {
-    _dio.options.connectTimeout = const Duration(seconds: 30);
-    _dio.options.receiveTimeout = const Duration(seconds: 30);
+    _dio.options.connectTimeout = const Duration(seconds: 60);
+    _dio.options.receiveTimeout = const Duration(seconds: 60);
     
     // Thêm Interceptor để tự động đính kèm Token cho các request tới Backend
     _dio.interceptors.add(InterceptorsWrapper(
@@ -94,6 +94,82 @@ class ApiService {
     
     // Public URL format: https://[project-id].supabase.co/storage/v1/object/public/[bucket]/[path]
     return "${ApiConfig.supabaseUrl}/storage/v1/object/public/${ApiConfig.supabaseBucket}/$path";
+  }
+
+  // --- Campaign APIs ---
+
+  Future<Response> getCategories() async {
+    return await _dio.get("${ApiConfig.campaignUrl}/campaign-categories");
+  }
+
+  Future<Response> createCampaign(Map<String, dynamic> data) async {
+    return await _dio.post("${ApiConfig.campaignUrl}/campaigns", data: data);
+  }
+
+  Future<Response> updateCampaign(int id, Map<String, dynamic> data) async {
+    return await _dio.put("${ApiConfig.campaignUrl}/campaigns/$id", data: data);
+  }
+
+  // --- AI APIs ---
+
+  Future<Response> generateDescription(String prompt, {String? rules}) async {
+    return await _dio.post(
+      "${ApiConfig.aiUrl}/generate-description",
+      data: {
+        'prompt': prompt,
+        'rules': rules,
+      },
+    );
+  }
+
+  // --- Fundraising Goal APIs ---
+
+  Future<Response> createGoal(Map<String, dynamic> data) async {
+    return await _dio.post("${ApiConfig.campaignUrl}/fundraising-goals", data: data);
+  }
+
+  Future<Response> getGoalsByCampaign(int campaignId) async {
+    return await _dio.get("${ApiConfig.campaignUrl}/fundraising-goals/campaign/$campaignId");
+  }
+
+  // --- Expenditure APIs ---
+
+  Future<Response> createExpenditure(Map<String, dynamic> data) async {
+    return await _dio.post("${ApiConfig.campaignUrl}/expenditures", data: data);
+  }
+
+  // --- Media Asset APIs (Campaign/Post/Expenditure) ---
+
+  Future<Response> uploadMedia(
+    File file, {
+    int? campaignId,
+    String? mediaType, // "PHOTO", "VIDEO", "FILE"
+    String? description,
+  }) async {
+    String fileName = file.path.split(Platform.pathSeparator).last;
+    if (fileName.isEmpty) fileName = file.path.split('/').last; // Fallback
+    FormData formData = FormData.fromMap({
+      "file": await MultipartFile.fromFile(file.path, filename: fileName),
+      // ignore: use_null_aware_elements
+      if (campaignId != null) "campaignId": campaignId,
+      // ignore: use_null_aware_elements
+      if (mediaType != null) "mediaType": mediaType,
+      // ignore: use_null_aware_elements
+      if (description != null) "description": description,
+    });
+
+    return await _dio.post(
+      "${ApiConfig.mediaUrl}/media/upload",
+      data: formData,
+      options: Options(headers: {"Content-Type": "multipart/form-data"}),
+    );
+  }
+
+  Future<Response> linkMediaToCampaign(int mediaId, int campaignId) async {
+    return await _dio.patch(
+      "${ApiConfig.mediaUrl}/media/$mediaId",
+      data: {"campaignId": campaignId},
+    );
   }
 
   // --- Bank Account APIs ---

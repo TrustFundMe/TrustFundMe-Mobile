@@ -1,4 +1,4 @@
-import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
@@ -64,12 +64,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _pickImage() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final picker = ImagePicker();
     final image = await picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
-      final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final success = await authProvider.updateAvatar(image.path);
-      if (success && mounted) {
+      if (!mounted) return;
+      if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Avatar updated successfully!")),
         );
@@ -97,10 +98,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: webTextDark),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        leading: Navigator.of(context).canPop() 
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: webTextDark),
+                onPressed: () => Navigator.of(context).pop(),
+              )
+            : null,
         actions: [
           TextButton(
             onPressed: () {
@@ -157,7 +160,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Container(
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          border: Border.all(color: webPrimary.withOpacity(0.2), width: 4),
+                          border: Border.all(color: webPrimary.withValues(alpha: 0.2), width: 4),
                         ),
                         child: CircleAvatar(
                           radius: 55,
@@ -201,7 +204,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                     decoration: BoxDecoration(
-                      color: webEmerald.withOpacity(0.1),
+                      color: webEmerald.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
@@ -318,6 +321,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         );
 
                         if (profileSuccess && bankSuccess) {
+                          if (!context.mounted) return;
                           setState(() => _isEditing = false);
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text("Profile and Bank details updated!")),
@@ -330,7 +334,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         minimumSize: const Size(double.infinity, 54),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         elevation: 4,
-                        shadowColor: webPrimary.withOpacity(0.4),
+                        shadowColor: webPrimary.withValues(alpha: 0.4),
                       ),
                       child: authProvider.isLoading 
                           ? const CircularProgressIndicator(color: Colors.white)
@@ -523,3 +527,4 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 }
+

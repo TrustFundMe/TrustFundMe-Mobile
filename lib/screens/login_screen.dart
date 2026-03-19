@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/providers/auth_provider.dart';
-import 'home_screen.dart';
+import 'main_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,12 +15,11 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
 
-  // Màu sắc chính xác theo thiết kế Web (Tailwind Colors)
-  static const Color webPrimary = Color(0xFFF84D43); // Coral-Red (--primary)
-  static const Color webButtonBlack = Color(0xFF000000); // Pure black
-  static const Color webBgGray = Color(0xFFF9FAFB); // bg-gray-50
-  static const Color webBorderGray = Color(0xFFD1D5DB); // border-gray-300
-  static const Color webTextGray = Color(0xFF4B5563); // text-gray-600
+  static const Color webPrimary = Color(0xFFF84D43);
+  static const Color webButtonBlack = Color(0xFF000000);
+  static const Color webBgGray = Color(0xFFF9FAFB);
+  static const Color webBorderGray = Color(0xFFD1D5DB);
+  static const Color webTextGray = Color(0xFF4B5563);
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +34,6 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Container chứa toàn bộ Card Login (Phần Content trắng ở bản Web)
                 Container(
                   constraints: const BoxConstraints(maxWidth: 450),
                   padding: const EdgeInsets.all(32),
@@ -44,7 +42,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
+                        color: Colors.black.withValues(alpha: 0.1),
                         blurRadius: 20,
                         offset: const Offset(0, 10),
                       ),
@@ -52,12 +50,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   child: Column(
                     children: [
-                      // Logo
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8.0),
                         child: Image.asset(
                           'assets/images/black-logo.png',
-                          height: 64, // Tăng kích thước để dễ thấy hơn
+                          height: 64,
                           fit: BoxFit.contain,
                           errorBuilder: (context, error, stackTrace) {
                             return const Icon(Icons.image_not_supported, size: 48, color: Colors.grey);
@@ -65,8 +62,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       const SizedBox(height: 24),
-
-                      // Subheading
                       const Text(
                         "Sign in to TrustFundMe or sign up to continue",
                         textAlign: TextAlign.center,
@@ -77,17 +72,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       const SizedBox(height: 32),
-
-                      // Google Login Button (Giả lập giống Web)
                       _buildSocialButton(
                         icon: Icons.g_mobiledata,
                         text: "Continue with Google",
                         onPressed: () {},
                       ),
-
                       const SizedBox(height: 24),
-
-                      // Divider "or"
                       Row(
                         children: [
                           const Expanded(child: Divider(color: webBorderGray)),
@@ -101,18 +91,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           const Expanded(child: Divider(color: webBorderGray)),
                         ],
                       ),
-
                       const SizedBox(height: 24),
-
-                      // Username Input
                       _buildTextField(
                         controller: _usernameController,
                         hint: "Email",
                         obscure: false,
                       ),
                       const SizedBox(height: 16),
-
-                      // Password Input (Nếu logic của bạn đã tách step thì sẽ ẩn, ở đây tôi gộp vào)
                       _buildTextField(
                         controller: _passwordController,
                         hint: "Password",
@@ -126,10 +111,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                         ),
                       ),
-
                       const SizedBox(height: 12),
-
-                      // Link Quên mật khẩu
                       Align(
                         alignment: Alignment.centerLeft,
                         child: GestureDetector(
@@ -144,9 +126,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 24),
-
                       if (authProvider.error != null)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 16),
@@ -156,8 +136,6 @@ class _LoginScreenState extends State<LoginScreen> {
                             style: const TextStyle(color: Colors.red, fontSize: 13),
                           ),
                         ),
-
-                      // Nút Continue chính
                       SizedBox(
                         width: double.infinity,
                         height: 52,
@@ -169,9 +147,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                     _usernameController.text,
                                     _passwordController.text,
                                   );
-                                  if (success && mounted) {
+                                  if (!context.mounted) return;
+                                  if (success) {
                                     Navigator.of(context).pushReplacement(
-                                      MaterialPageRoute(builder: (context) => const HomeScreen()),
+                                      MaterialPageRoute(builder: (context) => const MainScreen()),
                                     );
                                   }
                                 },
@@ -198,10 +177,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                         ),
                       ),
-
                       const SizedBox(height: 24),
-
-                      // Sign up Link
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -225,9 +201,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 32),
-                // Footer text như Web
                 const Text(
                   "This site is protected by reCAPTCHA and the Google Privacy Policy and Terms of Service apply.",
                   textAlign: TextAlign.center,
@@ -302,3 +276,4 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
+
