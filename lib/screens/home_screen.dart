@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
+import 'campaigns_screen.dart';
 import 'create_campaign_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -61,7 +62,8 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHero(BuildContext context, Color primary, Color dark, Color gray, Color emerald) {
+  Widget _buildHero(
+      BuildContext context, Color primary, Color dark, Color gray, Color emerald) {
     return Container(
       width: double.infinity,
       height: 400, // Reduced from 450 to reduce white space
@@ -130,7 +132,13 @@ class HomeScreen extends StatelessWidget {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     ElevatedButton(
-                      onPressed: () {},
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const CampaignsScreen(),
+                          ),
+                        );
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primary,
                         foregroundColor: Colors.white,
@@ -449,7 +457,13 @@ class HomeScreen extends StatelessWidget {
            .shimmer(duration: 3.seconds, color: Colors.white24),
           const SizedBox(height: 24),
           ElevatedButton(
-            onPressed: () {},
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const CampaignsScreen(),
+                ),
+              );
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: primary,
               foregroundColor: Colors.white,
