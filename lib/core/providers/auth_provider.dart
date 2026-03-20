@@ -19,6 +19,42 @@ class AuthProvider with ChangeNotifier {
   UserModel? get user => _user;
   BankAccountModel? get bankAccount => _bankAccount;
 
+  Future<bool> register({
+    required String email,
+    required String password,
+    required String fullName,
+    String? phoneNumber,
+  }) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final Response<dynamic> response = await _apiService.register(
+        email: email,
+        password: password,
+        fullName: fullName,
+        phoneNumber: phoneNumber,
+      );
+      if (response.statusCode == 201) {
+        final dynamic userRaw = response.data['user'];
+        if (userRaw is Map<String, dynamic>) {
+          _user = UserModel.fromJson(userRaw);
+        }
+        _isLoggedIn = true;
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      }
+    } catch (e) {
+      _error = ErrorHandler.handle(e);
+    }
+
+    _isLoading = false;
+    notifyListeners();
+    return false;
+  }
+
   Future<bool> login(String username, String password) async {
     _isLoading = true;
     _error = null;
@@ -188,6 +224,22 @@ class AuthProvider with ChangeNotifier {
     _isLoggedIn = false;
     _user = null;
     _bankAccount = null;
+    notifyListeners();
+  }
+
+  /// Sau [verify-email] trên BE (luồng xác minh OTP đăng ký).
+  void applyEmailVerified() {
+    if (_user == null) return;
+    _user = UserModel(
+      id: _user!.id,
+      email: _user!.email,
+      fullName: _user!.fullName,
+      phoneNumber: _user!.phoneNumber,
+      avatarUrl: _user!.avatarUrl,
+      role: _user!.role,
+      verified: true,
+      isActive: _user!.isActive,
+    );
     notifyListeners();
   }
 }

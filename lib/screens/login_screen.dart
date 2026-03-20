@@ -3,10 +3,15 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:provider/provider.dart';
 import '../core/providers/auth_provider.dart';
+import 'forgot_password_screen.dart';
 import 'main_screen.dart';
+import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.initialSnackMessage});
+
+  /// Hiển thị sau khi đặt lại mật khẩu (luồng quên mật khẩu).
+  final String? initialSnackMessage;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -29,6 +34,15 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
     _googleInitFuture = _initGoogleSignIn();
+    final String? snack = widget.initialSnackMessage;
+    if (snack != null && snack.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(snack)),
+        );
+      });
+    }
   }
 
   Future<void> _initGoogleSignIn() async {
@@ -180,7 +194,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       Align(
                         alignment: Alignment.centerLeft,
                         child: GestureDetector(
-                          onTap: () {},
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const ForgotPasswordScreen(),
+                              ),
+                            );
+                          },
                           child: const Text(
                             "Quên mật khẩu?",
                             style: TextStyle(
@@ -195,10 +215,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       if (authProvider.error != null)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 12),
-                          child: Text(
-                            authProvider.error!,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.red, fontSize: 13),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: Text(
+                              authProvider.error!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Colors.red, fontSize: 13),
+                            ),
                           ),
                         ),
                       SizedBox(
@@ -251,7 +274,13 @@ class _LoginScreenState extends State<LoginScreen> {
                             style: TextStyle(color: webTextGray, fontSize: 14),
                           ),
                           GestureDetector(
-                            onTap: () {},
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const RegisterScreen(),
+                                ),
+                              );
+                            },
                             child: const Text(
                               "Đăng ký",
                               style: TextStyle(

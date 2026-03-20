@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../core/utils/image_cropper_helper.dart';
 import '../core/providers/auth_provider.dart';
+import 'email_verification_screen.dart';
 import 'feature_hub_placeholder_screen.dart';
 import 'login_screen.dart';
 
@@ -243,16 +244,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 isEditing: _isEditing,
                 keyboardType: TextInputType.phone,
               ),
-              _buildStaticRow(
-                icon: Icons.email_outlined,
-                label: "Email",
-                value: user.email,
-              ),
-              _buildStaticRow(
-                icon: Icons.verified_user_outlined,
-                label: "Xác minh danh tính",
-                value: user.verified ? "Đã xác minh" : "Chưa xác minh",
-                valueColor: user.verified ? webEmerald : Colors.grey,
+              _buildEmailRow(
+                email: user.email,
+                emailVerified: user.verified,
               ),
             ]),
 
@@ -519,6 +513,129 @@ class _ProfileScreenState extends State<ProfileScreen> {
         border: Border.all(color: webBorderGray),
       ),
       child: Column(children: children),
+    );
+  }
+
+  /// Email + trạng thái xác thực (cùng cờ `verified` từ BE sau verify-email).
+  Widget _buildEmailRow({
+    required String email,
+    required bool emailVerified,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.all(18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: webBgGray,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.email_outlined, size: 20, color: webTextGray),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  'Email',
+                  style: TextStyle(fontSize: 12, color: webTextGray),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  email,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: webTextDark,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: <Widget>[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: emailVerified
+                            ? webEmerald.withValues(alpha: 0.12)
+                            : const Color(0xFFFFF7ED),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: emailVerified
+                              ? webEmerald.withValues(alpha: 0.35)
+                              : const Color(0xFFFDBA74),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Icon(
+                            emailVerified
+                                ? Icons.mark_email_read_outlined
+                                : Icons.mark_email_unread_outlined,
+                            size: 16,
+                            color: emailVerified ? webEmerald : const Color(0xFFC2410C),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            emailVerified
+                                ? 'Đã xác thực email'
+                                : 'Chưa xác thực email',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: emailVerified ? webEmerald : const Color(0xFF9A3412),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!emailVerified)
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: () async {
+                          final bool? ok = await Navigator.of(context).push<bool>(
+                            MaterialPageRoute<bool>(
+                              builder: (_) => EmailVerificationScreen(
+                                email: email,
+                                replaceAppOnSuccess: false,
+                              ),
+                            ),
+                          );
+                          if (!mounted) return;
+                          if (ok == true) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Đã xác thực email.'),
+                              ),
+                            );
+                          }
+                        },
+                        child: const Text(
+                          'Xác thực ngay',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: webPrimary,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

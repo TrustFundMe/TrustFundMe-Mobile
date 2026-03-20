@@ -32,6 +32,10 @@ class ApiConfig {
 
   static String get loginEndpoint => '/auth/login';
   static String get registerEndpoint => '/auth/register';
+  static String get sendOtpEndpoint => '/auth/send-otp';
+  static String get verifyOtpEndpoint => '/auth/verify-otp';
+  static String get resetPasswordEndpoint => '/auth/reset-password';
+  static String get verifyEmailEndpoint => '/auth/verify-email';
   static String get userEndpoint => '/users';
   static String get bankAccountEndpoint => '/bank-accounts';
   static String get googleLoginEndpoint => '/auth/google-login';

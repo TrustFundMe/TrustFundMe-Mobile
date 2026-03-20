@@ -20,10 +20,14 @@ class UserModel {
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
+    final dynamic rawId = json['id'];
+    final int id = rawId is int
+        ? rawId
+        : (rawId is num ? rawId.toInt() : int.tryParse('$rawId') ?? 0);
     return UserModel(
-      id: json['id'],
-      email: json['email'],
-      fullName: json['fullName'],
+      id: id,
+      email: json['email'] as String,
+      fullName: json['fullName'] as String,
       phoneNumber: json['phoneNumber'],
       avatarUrl: json['avatarUrl'],
       role: json['role'] ?? 'DONOR',

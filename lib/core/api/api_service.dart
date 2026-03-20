@@ -80,6 +80,73 @@ class ApiService {
     return response;
   }
 
+  Future<Response<dynamic>> register({
+    required String email,
+    required String password,
+    required String fullName,
+    String? phoneNumber,
+  }) async {
+    final Response<dynamic> response = await _dio.post(
+      '${ApiConfig.identityUrl}${ApiConfig.registerEndpoint}',
+      data: <String, dynamic>{
+        'email': email.trim(),
+        'password': password,
+        'fullName': fullName.trim(),
+        if (phoneNumber != null && phoneNumber.trim().isNotEmpty)
+          'phoneNumber': phoneNumber.trim(),
+      },
+    );
+
+    if (response.statusCode == 201) {
+      final String? token = response.data['accessToken'] as String?;
+      if (token != null && token.isNotEmpty) {
+        await _storage.write(key: 'jwt_token', value: token);
+      }
+    }
+    return response;
+  }
+
+  Future<Response<dynamic>> sendPasswordResetOtp(String email) async {
+    return _dio.post(
+      '${ApiConfig.identityUrl}${ApiConfig.sendOtpEndpoint}',
+      data: <String, dynamic>{'email': email.trim()},
+    );
+  }
+
+  Future<Response<dynamic>> verifyPasswordResetOtp({
+    required String email,
+    required String otp,
+  }) async {
+    return _dio.post(
+      '${ApiConfig.identityUrl}${ApiConfig.verifyOtpEndpoint}',
+      data: <String, dynamic>{
+        'email': email.trim(),
+        'otp': otp.trim(),
+      },
+    );
+  }
+
+  Future<Response<dynamic>> resetPassword({
+    required String token,
+    required String newPassword,
+  }) async {
+    return _dio.post(
+      '${ApiConfig.identityUrl}${ApiConfig.resetPasswordEndpoint}',
+      data: <String, dynamic>{
+        'token': token,
+        'newPassword': newPassword,
+      },
+    );
+  }
+
+  /// Sau [verifyPasswordResetOtp]: BE trả JWT `type: password_reset`; endpoint này đánh dấu email đã xác minh (luồng đăng ký danbox).
+  Future<Response<dynamic>> verifyEmailWithToken(String token) async {
+    return _dio.post(
+      '${ApiConfig.identityUrl}${ApiConfig.verifyEmailEndpoint}',
+      data: <String, dynamic>{'token': token},
+    );
+  }
+
   Future<Response<dynamic>> loginWithGoogle(String idToken) async {
     final Response<dynamic> response = await _dio.post(
       '${ApiConfig.identityUrl}${ApiConfig.googleLoginEndpoint}',
