@@ -110,6 +110,32 @@ class ApiService {
     return await _dio.put("${ApiConfig.campaignUrl}/campaigns/$id", data: data);
   }
 
+  Future<Response> getUserCampaigns(int userId, {int page = 0, int size = 10}) async {
+    return await _dio.get(
+      "${ApiConfig.campaignUrl}/campaigns/fund-owner/$userId/paginated",
+      queryParameters: {
+        'page': page,
+        'size': size,
+      },
+    );
+  }
+
+  Future<Response> deleteCampaign(int id) async {
+    return await _dio.delete("${ApiConfig.campaignUrl}/campaigns/$id");
+  }
+
+  Future<Response> getCampaign(int id) async {
+    return await _dio.get("${ApiConfig.campaignUrl}/campaigns/$id");
+  }
+
+  Future<Response> getActiveGoalByCampaign(int campaignId) async {
+    return await _dio.get("${ApiConfig.campaignUrl}/fundraising-goals/active/$campaignId");
+  }
+
+  Future<Response> getCampaignFirstImage(int campaignId) async {
+    return await _dio.get("${ApiConfig.mediaUrl}/media/campaign/$campaignId/first");
+  }
+
   // --- AI APIs ---
 
   Future<Response> generateDescription(String prompt, {String? rules}) async {

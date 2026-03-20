@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../core/providers/auth_provider.dart';
 import 'login_screen.dart';
+import 'my_campaigns_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -358,10 +359,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 crossAxisSpacing: 12,
                 childAspectRatio: 2.2,
                 children: [
-                  _buildQuickAction(Icons.favorite_outline, "Impact"),
-                  _buildQuickAction(Icons.folder_open_outlined, "Campaigns"),
-                  _buildQuickAction(Icons.calendar_month_outlined, "Appointments"),
-                  _buildQuickAction(Icons.flag_outlined, "Reports"),
+                  InkWell(
+                    onTap: () {},
+                    borderRadius: BorderRadius.circular(16),
+                    child: _buildQuickAction(Icons.favorite_outline, "Impact"),
+                  ),
+                  InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const MyCampaignsScreen()),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(16),
+                    child: _buildQuickAction(Icons.folder_open_outlined, "Campaigns"),
+                  ),
+                  InkWell(
+                    onTap: () {},
+                    borderRadius: BorderRadius.circular(16),
+                    child: _buildQuickAction(Icons.calendar_month_outlined, "Appointments"),
+                  ),
+                  InkWell(
+                    onTap: () {},
+                    borderRadius: BorderRadius.circular(16),
+                    child: _buildQuickAction(Icons.flag_outlined, "Reports"),
+                  ),
                 ],
               ),
             ),

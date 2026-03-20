@@ -8,7 +8,14 @@ import 'package:provider/provider.dart';
 import 'package:trustfundme_mobile/core/utils/error_handler.dart';
 
 class CreateCampaignScreen extends StatefulWidget {
-  const CreateCampaignScreen({super.key});
+  final bool isEditMode;
+  final int? campaignId;
+
+  const CreateCampaignScreen({
+    super.key,
+    this.isEditMode = false,
+    this.campaignId,
+  });
 
   @override
   State<CreateCampaignScreen> createState() => _CreateCampaignScreenState();
@@ -61,6 +68,9 @@ class _CreateCampaignScreenState extends State<CreateCampaignScreen> {
   void initState() {
     super.initState();
     _fetchCategories();
+    if (widget.isEditMode && widget.campaignId != null) {
+      _fetchCampaignData();
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       if (authProvider.bankAccount != null) {
@@ -68,11 +78,31 @@ class _CreateCampaignScreenState extends State<CreateCampaignScreen> {
         _accountNumberController.text = authProvider.bankAccount!.accountNumber;
         _accountHolderNameController.text = authProvider.bankAccount!.accountHolderName;
       }
-      // Listen for bank info changes
       _bankCodeController.addListener(_onBankInfoChanged);
       _accountNumberController.addListener(_onBankInfoChanged);
       _accountHolderNameController.addListener(_onBankInfoChanged);
     });
+  }
+
+  Future<void> _fetchCampaignData() async {
+    setState(() => _isSubmitting = true); 
+    try {
+      final response = await _apiService.getCampaign(widget.campaignId!);
+      if (response.statusCode == 200) {
+        final data = response.data;
+        setState(() {
+          _titleController.text = data['title'] ?? '';
+          _descriptionController.text = data['description'] ?? '';
+          _thankMessageController.text = data['thankMessage'] ?? '';
+          _targetAmountController.text = (data['targetAmount'] ?? 0).toString();
+          _selectedCategoryId = data['categoryId'];
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching campaign data: $e");
+    } finally {
+      setState(() => _isSubmitting = false);
+    }
   }
 
   void _onBankInfoChanged() {
@@ -975,26 +1005,40 @@ class _CreateCampaignScreenState extends State<CreateCampaignScreen> {
       final String nowIso = DateTime.now().toIso8601String().split('.').first; // Remove ms and timezone for LocalDateTime
       final String endIso = DateTime.now().add(const Duration(days: 30)).toIso8601String().split('.').first;
 
-      final campaignRes = await _apiService.createCampaign({
-        "fundOwnerId": user.id,
-        "title": _titleController.text.trim(),
-        "description": _descriptionController.text.trim(),
-        "thankMessage": _thankMessageController.text.trim().isNotEmpty ? _thankMessageController.text.trim() : null,
-        "categoryId": _selectedCategoryId ?? 1,
-        "type": _fundType,
-        "coverImage": coverMediaId,
-        "attachments": uploadedMedia.map((m) => {
-          "id": m['id'],
-          "type": m['type'],
-          "url": m['url'],
-          "name": m['name'],
-        }).toList(),
-        "status": 'PENDING_APPROVAL',
-        "balance": 0,
-        "startDate": nowIso,
-        "endDate": endIso,
-      });
-      final campaignId = campaignRes.data['id'];
+      int campaignId;
+      if (widget.isEditMode && widget.campaignId != null) {
+        await _apiService.updateCampaign(widget.campaignId!, {
+          "title": _titleController.text.trim(),
+          "description": _descriptionController.text.trim(),
+          "thankMessage": _thankMessageController.text.trim().isNotEmpty ? _thankMessageController.text.trim() : null,
+          "categoryId": _selectedCategoryId ?? 1,
+          "type": _fundType,
+          "coverImage": coverMediaId,
+          "status": 'PENDING_APPROVAL',
+        });
+        campaignId = widget.campaignId!;
+      } else {
+        final campaignRes = await _apiService.createCampaign({
+          "fundOwnerId": user.id,
+          "title": _titleController.text.trim(),
+          "description": _descriptionController.text.trim(),
+          "thankMessage": _thankMessageController.text.trim().isNotEmpty ? _thankMessageController.text.trim() : null,
+          "categoryId": _selectedCategoryId ?? 1,
+          "type": _fundType,
+          "coverImage": coverMediaId,
+          "attachments": uploadedMedia.map((m) => {
+            "id": m['id'],
+            "type": m['type'],
+            "url": m['url'],
+            "name": m['name'],
+          }).toList(),
+          "status": 'PENDING_APPROVAL',
+          "balance": 0,
+          "startDate": nowIso,
+          "endDate": endIso,
+        });
+        campaignId = campaignRes.data['id'];
+      }
 
       // 4. Fundraising Goal
       await _apiService.createGoal({
