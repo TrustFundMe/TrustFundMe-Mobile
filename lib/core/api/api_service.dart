@@ -226,6 +226,32 @@ class ApiService {
     );
   }
 
+  Future<Response<dynamic>> getUserCampaigns(int userId, {int page = 0, int size = 10}) async {
+    return _dio.get(
+      "${ApiConfig.campaignUrl}/campaigns/fund-owner/$userId/paginated",
+      queryParameters: {
+        'page': page,
+        'size': size,
+      },
+    );
+  }
+
+  Future<Response<dynamic>> deleteCampaign(int id) async {
+    return _dio.delete("${ApiConfig.campaignUrl}/campaigns/$id");
+  }
+
+  Future<Response<dynamic>> getCampaign(int id) async {
+    return _dio.get("${ApiConfig.campaignUrl}/campaigns/$id");
+  }
+
+  Future<Response<dynamic>> getActiveGoalByCampaign(int campaignId) async {
+    return _dio.get("${ApiConfig.campaignUrl}/fundraising-goals/active/$campaignId");
+  }
+
+  Future<Response<dynamic>> getCampaignFirstImage(int campaignId) async {
+    return _dio.get("${ApiConfig.mediaUrl}/media/campaign/$campaignId/first");
+  }
+
   // AI APIs
 
   Future<Response<dynamic>> generateDescription(

@@ -7,6 +7,7 @@ import '../core/providers/auth_provider.dart';
 import 'email_verification_screen.dart';
 import 'feature_hub_placeholder_screen.dart';
 import 'login_screen.dart';
+import 'my_campaigns_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -412,6 +413,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 childAspectRatio: 2.2,
                 children: [
                   _buildQuickAction(
+                    icon: Icons.favorite_outline,
+                    title: "Impact",
+                    onTap: () => _openFeaturePlaceholder(
+                      title: "Impact",
+                      description: "Tính năng Impact sẽ sớm ra mắt để bạn theo dõi tác động của mình.",
+                      icon: Icons.favorite_outline,
+                    ),
+                  ),
+                  _buildQuickAction(
                     icon: Icons.chat_bubble_outline,
                     title: "Chat",
                     onTap: () => _openFeaturePlaceholder(
@@ -419,6 +429,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       description: "Trò chuyện 1-1 theo chiến dịch sẽ được đồng bộ từ web app.",
                       icon: Icons.chat_bubble_outline,
                     ),
+                  ),
+                  _buildQuickAction(
+                    icon: Icons.folder_open_outlined,
+                    title: "Chiến dịch của tôi",
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const MyCampaignsScreen()),
+                      );
+                    },
                   ),
                   _buildQuickAction(
                     icon: Icons.calendar_month_outlined,
@@ -436,15 +456,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       title: "Báo cáo",
                       description: "Báo cáo bài viết và nội dung cộng đồng sẽ được tối ưu cho mobile.",
                       icon: Icons.flag_outlined,
-                    ),
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.folder_open_outlined,
-                    title: "Chiến dịch của tôi",
-                    onTap: () => _openFeaturePlaceholder(
-                      title: "Chiến dịch của tôi",
-                      description: "Theo dõi danh sách chiến dịch cá nhân, tiến độ và cập nhật theo thời gian thực.",
-                      icon: Icons.folder_open_outlined,
                     ),
                   ),
                 ],
