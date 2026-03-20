@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/providers/auth_provider.dart';
-import 'screens/login_screen.dart';
+import 'screens/app_bootstrap_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,7 +30,7 @@ class TrustFundMeApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'Roboto', // Đảm bảo bạn có font hoặc dùng mặc định
       ),
-      home: const LoginScreen(),
+      home: const AppBootstrapScreen(),
     );
   }
 }

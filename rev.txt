@@ -1,0 +1,8 @@
+add path:
+$adbDir = 'C:\Users\Admin\AppData\Local\Android\Sdk\platform-tools'; $userPath = [Environment]::GetEnvironmentVariable('Path','User'); if (-not $userPath) { $userPath = '' }; $parts = $userPath -split ';' | Where-Object { $_ -ne '' }; if ($parts -notcontains $adbDir) { $newUserPath = (($parts + $adbDir) -join ';'); [Environment]::SetEnvironmentVariable('Path', $newUserPath, 'User'); 'User PATH updated' } else { 'User PATH already contains adb dir' }; if (-not (($env:Path -split ';') -contains $adbDir)) { $env:Path = "$env:Path;$adbDir" }; adb devices
+sau do su dung: 
+adb reverse tcp:8081 tcp:8081
+adb reverse tcp:8082 tcp:8082
+adb reverse tcp:8083 tcp:8083
+adb reverse tcp:8086 tcp:8086
+adb reverse tcp:8087 tcp:8087
