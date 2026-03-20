@@ -89,13 +89,33 @@ class RecentDonorModel {
   });
 
   factory RecentDonorModel.fromJson(Map<String, dynamic> json) {
+    final dynamic rawId = json['donationId'];
+    final int donationId = rawId is int
+        ? rawId
+        : (rawId is num ? rawId.toInt() : 0);
+    final dynamic rawDonorId = json['donorId'];
+    final int? donorId = rawDonorId == null
+        ? null
+        : (rawDonorId is int ? rawDonorId : (rawDonorId as num).toInt());
+    final dynamic rawAmount = json['amount'];
+    final int amount = rawAmount is int
+        ? rawAmount
+        : (rawAmount is num ? rawAmount.round() : 0);
+    final dynamic rawCreated = json['createdAt'];
+    String createdAt = '';
+    if (rawCreated is String) {
+      createdAt = rawCreated;
+    } else if (rawCreated is List && rawCreated.length >= 3) {
+      // Một s cấu hình Jackson trả LocalDateTime dạng mảng
+      createdAt = rawCreated.toString();
+    }
     return RecentDonorModel(
-      donationId: json['donationId'] as int,
-      donorId: json['donorId'] as int?,
+      donationId: donationId,
+      donorId: donorId,
       donorName: (json['donorName'] ?? '') as String,
       donorAvatar: json['donorAvatar'] as String?,
-      amount: (json['amount'] as num?)?.toInt() ?? 0,
-      createdAt: (json['createdAt'] ?? '') as String,
+      amount: amount,
+      createdAt: createdAt,
       anonymous: json['anonymous'] as bool? ?? false,
     );
   }

@@ -3,10 +3,12 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 class DonationWebViewScreen extends StatefulWidget {
   final String paymentUrl;
+  final int? donationId;
 
   const DonationWebViewScreen({
     super.key,
     required this.paymentUrl,
+    this.donationId,
   });
 
   @override
@@ -35,6 +37,23 @@ class _DonationWebViewScreenState extends State<DonationWebViewScreen> {
             setState(() {
               _isLoading = false;
             });
+          },
+          onNavigationRequest: (NavigationRequest request) {
+            final Uri? uri = Uri.tryParse(request.url);
+            if (uri == null) return NavigationDecision.navigate;
+
+            final bool isSuccess = uri.path.contains('/donation/success');
+            final bool isCancel = uri.path.contains('/donation/cancel');
+            if (isSuccess || isCancel) {
+              final int? donationIdFromUrl =
+                  int.tryParse(uri.queryParameters['donationId'] ?? '');
+              Navigator.of(context).pop(<String, dynamic>{
+                'success': isSuccess,
+                'donationId': donationIdFromUrl ?? widget.donationId,
+              });
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
           },
         ),
       )

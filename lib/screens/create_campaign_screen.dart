@@ -6,6 +6,7 @@ import 'package:trustfundme_mobile/core/api/api_service.dart';
 import 'package:trustfundme_mobile/core/providers/auth_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:trustfundme_mobile/core/utils/error_handler.dart';
+import 'package:trustfundme_mobile/core/utils/image_cropper_helper.dart';
 
 class CreateCampaignScreen extends StatefulWidget {
   const CreateCampaignScreen({super.key});
@@ -1269,8 +1270,15 @@ class _CreateCampaignScreenState extends State<CreateCampaignScreen> {
           onTap: () async {
             final List<XFile> picked = await _picker.pickMultiImage();
             if (picked.isNotEmpty) {
+              final List<XFile> processed = <XFile>[];
+              for (final XFile file in picked) {
+                final String finalPath =
+                    await ImageCropperHelper.cropCampaignImage(file.path) ??
+                        file.path;
+                processed.add(XFile(finalPath));
+              }
               setState(() {
-                _attachments.addAll(picked);
+                _attachments.addAll(processed);
                 _coverIndex ??= 0;
               });
             }

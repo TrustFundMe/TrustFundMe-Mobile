@@ -34,4 +34,5 @@ class ApiConfig {
   static String get registerEndpoint => '/auth/register';
   static String get userEndpoint => '/users';
   static String get bankAccountEndpoint => '/bank-accounts';
+  static String get googleLoginEndpoint => '/auth/google-login';
 }

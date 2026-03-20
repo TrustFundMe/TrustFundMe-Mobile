@@ -42,8 +42,35 @@ class AuthProvider with ChangeNotifier {
     return false;
   }
 
+  Future<bool> loginWithGoogle(String idToken) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final response = await _apiService.loginWithGoogle(idToken);
+      if (response.statusCode == 200) {
+        _user = UserModel.fromJson(response.data['user']);
+        _isLoggedIn = true;
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      }
+    } catch (e) {
+      _error = ErrorHandler.handle(e);
+    }
+
+    _isLoading = false;
+    notifyListeners();
+    return false;
+  }
+
   Future<bool> updateProfile(String fullName, String? phoneNumber) async {
     if (_user == null) return false;
+    final String safeFullName = fullName.trim();
+    final String? safePhone = (phoneNumber == null || phoneNumber.trim().isEmpty)
+        ? null
+        : phoneNumber.trim();
     
     _isLoading = true;
     _error = null;
@@ -51,8 +78,8 @@ class AuthProvider with ChangeNotifier {
 
     try {
       final response = await _apiService.updateProfile(_user!.id, {
-        'fullName': fullName,
-        'phoneNumber': phoneNumber,
+        'fullName': safeFullName,
+        'phoneNumber': safePhone,
       });
 
       if (response.statusCode == 200) {
@@ -114,6 +141,16 @@ class AuthProvider with ChangeNotifier {
   }
 
   Future<bool> saveBankAccount(String bankCode, String accountNumber, String accountHolderName) async {
+    final String safeBankCode = bankCode.trim();
+    final String safeAccountNumber = accountNumber.trim();
+    final String safeAccountHolderName = accountHolderName.trim();
+
+    if (safeBankCode.isEmpty || safeAccountNumber.isEmpty || safeAccountHolderName.isEmpty) {
+      _error = "Vui lòng nhập đầy đủ thông tin ngân hàng.";
+      notifyListeners();
+      return false;
+    }
+
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -121,9 +158,9 @@ class AuthProvider with ChangeNotifier {
     try {
       Response response;
       Map<String, dynamic> data = {
-        'bankCode': bankCode,
-        'accountNumber': accountNumber,
-        'accountHolderName': accountHolderName,
+        'bankCode': safeBankCode,
+        'accountNumber': safeAccountNumber,
+        'accountHolderName': safeAccountHolderName,
       };
 
       if (_bankAccount != null) {

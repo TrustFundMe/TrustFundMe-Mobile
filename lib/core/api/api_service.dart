@@ -34,6 +34,36 @@ class ApiService {
     return _dio.get('${ApiConfig.campaignUrl}/campaigns');
   }
 
+  Future<Response<dynamic>> getFeedPostComments(
+    int postId, {
+    int page = 0,
+    int size = 20,
+    String sort = 'createdAt,desc',
+  }) async {
+    return _dio.get(
+      '${ApiConfig.campaignUrl}/feed-posts/$postId/comments',
+      queryParameters: <String, dynamic>{
+        'page': page,
+        'size': size,
+        'sort': sort,
+      },
+    );
+  }
+
+  Future<Response<dynamic>> createFeedPostComment(
+    int postId,
+    String content, {
+    int? parentCommentId,
+  }) async {
+    return _dio.post(
+      '${ApiConfig.campaignUrl}/feed-posts/$postId/comments',
+      data: <String, dynamic>{
+        'content': content,
+        'parentCommentId': parentCommentId,
+      },
+    );
+  }
+
   Future<Response<dynamic>> login(String username, String password) async {
     final Response<dynamic> response = await _dio.post(
       '${ApiConfig.identityUrl}${ApiConfig.loginEndpoint}',
@@ -41,6 +71,19 @@ class ApiService {
         'email': username,
         'password': password,
       },
+    );
+
+    if (response.statusCode == 200) {
+      final String token = response.data['accessToken'] as String;
+      await _storage.write(key: 'jwt_token', value: token);
+    }
+    return response;
+  }
+
+  Future<Response<dynamic>> loginWithGoogle(String idToken) async {
+    final Response<dynamic> response = await _dio.post(
+      '${ApiConfig.identityUrl}${ApiConfig.googleLoginEndpoint}',
+      data: <String, dynamic>{'idToken': idToken},
     );
 
     if (response.statusCode == 200) {
@@ -244,6 +287,10 @@ class ApiService {
     Map<String, dynamic> body,
   ) async {
     return _dio.post('${ApiConfig.paymentUrl}/create', data: body);
+  }
+
+  Future<Response<dynamic>> verifyDonationPayment(int donationId) async {
+    return _dio.get('${ApiConfig.paymentUrl}/donation/$donationId/verify');
   }
 
   Future<Response<dynamic>> getCampaignProgress(int campaignId) async {

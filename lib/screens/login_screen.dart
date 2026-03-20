@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:provider/provider.dart';
 import '../core/providers/auth_provider.dart';
 import 'main_screen.dart';
@@ -21,86 +23,149 @@ class _LoginScreenState extends State<LoginScreen> {
   static const Color webBorderGray = Color(0xFFD1D5DB);
   static const Color webTextGray = Color(0xFF4B5563);
 
+  late final Future<void> _googleInitFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _googleInitFuture = _initGoogleSignIn();
+  }
+
+  Future<void> _initGoogleSignIn() async {
+    final String? clientId = dotenv.maybeGet('GOOGLE_WEB_CLIENT_ID');
+    await GoogleSignIn.instance.initialize(
+      serverClientId: (clientId == null || clientId.isEmpty) ? null : clientId,
+    );
+  }
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleGoogleSignIn(AuthProvider authProvider) async {
+    if (authProvider.isLoading) return;
+
+    try {
+      await _googleInitFuture;
+      final GoogleSignInAccount googleUser = await GoogleSignIn.instance.authenticate(
+        scopeHint: const <String>['email', 'profile'],
+      );
+
+      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
+      final String? idToken = googleAuth.idToken;
+
+      if (idToken == null || idToken.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Không lấy được Google ID token. Kiểm tra GOOGLE_WEB_CLIENT_ID trong .env.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      final bool success = await authProvider.loginWithGoogle(idToken);
+      if (!mounted) return;
+      if (success) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const MainScreen()),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Google login thất bại: $e'),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
 
     return Scaffold(
       backgroundColor: webBgGray,
-      body: Center(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight - 40),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                Center(
+                  child: Image.asset(
+                    'assets/images/black-logo.png',
+                    height: 62,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Icon(
+                        Icons.image_not_supported,
+                        size: 48,
+                        color: Colors.grey,
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  "Đăng nhập để tiếp tục sử dụng TrustFundMe",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: webTextGray,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+                const SizedBox(height: 24),
                 Container(
-                  constraints: const BoxConstraints(maxWidth: 450),
-                  padding: const EdgeInsets.all(32),
+                  padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.1),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: webBorderGray),
                   ),
                   child: Column(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8.0),
-                        child: Image.asset(
-                          'assets/images/black-logo.png',
-                          height: 64,
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const Icon(Icons.image_not_supported, size: 48, color: Colors.grey);
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      const Text(
-                        "Sign in to TrustFundMe or sign up to continue",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: webTextGray,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                      const SizedBox(height: 32),
                       _buildSocialButton(
                         icon: Icons.g_mobiledata,
-                        text: "Continue with Google",
-                        onPressed: () {},
+                        text: "Tiếp tục với Google",
+                        onPressed: () => _handleGoogleSignIn(authProvider),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
                       Row(
                         children: [
                           const Expanded(child: Divider(color: webBorderGray)),
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
                             child: Text(
-                              "or",
+                              "hoặc",
                               style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
                             ),
                           ),
                           const Expanded(child: Divider(color: webBorderGray)),
                         ],
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
                       _buildTextField(
                         controller: _usernameController,
                         hint: "Email",
                         obscure: false,
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       _buildTextField(
                         controller: _passwordController,
-                        hint: "Password",
+                        hint: "Mật khẩu",
                         obscure: _obscurePassword,
                         suffixIcon: IconButton(
                           icon: Icon(
@@ -111,13 +176,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
                       Align(
                         alignment: Alignment.centerLeft,
                         child: GestureDetector(
                           onTap: () {},
                           child: const Text(
-                            "Forgot password?",
+                            "Quên mật khẩu?",
                             style: TextStyle(
                               color: webPrimary,
                               fontWeight: FontWeight.w500,
@@ -126,10 +191,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 18),
                       if (authProvider.error != null)
                         Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.only(bottom: 12),
                           child: Text(
                             authProvider.error!,
                             textAlign: TextAlign.center,
@@ -158,7 +223,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             backgroundColor: webButtonBlack,
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(12),
                             ),
                             elevation: 0,
                           ),
@@ -169,26 +234,26 @@ class _LoginScreenState extends State<LoginScreen> {
                                   child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                                 )
                               : const Text(
-                                  "Continue",
+                                  "Đăng nhập",
                                   style: TextStyle(
                                     fontSize: 15,
-                                    fontWeight: FontWeight.w500,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 18),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const Text(
-                            "Don't have an account? ",
+                            "Bạn chưa có tài khoản? ",
                             style: TextStyle(color: webTextGray, fontSize: 14),
                           ),
                           GestureDetector(
                             onTap: () {},
                             child: const Text(
-                              "Sign up",
+                              "Đăng ký",
                               style: TextStyle(
                                 color: webPrimary,
                                 fontWeight: FontWeight.bold,
@@ -201,15 +266,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 32),
-                const Text(
-                  "This site is protected by reCAPTCHA and the Google Privacy Policy and Terms of Service apply.",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey, fontSize: 11),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -242,7 +303,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: webPrimary, width: 2),
+          borderSide: const BorderSide(color: Color(0xFF111827), width: 1.5),
         ),
       ),
     );

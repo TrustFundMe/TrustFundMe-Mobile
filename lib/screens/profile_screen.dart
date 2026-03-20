@@ -2,7 +2,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import '../core/utils/image_cropper_helper.dart';
 import '../core/providers/auth_provider.dart';
+import 'feature_hub_placeholder_screen.dart';
 import 'login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -68,11 +70,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final picker = ImagePicker();
     final image = await picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
-      final success = await authProvider.updateAvatar(image.path);
+      final String uploadPath =
+          await ImageCropperHelper.cropAvatar(image.path) ?? image.path;
+      final success = await authProvider.updateAvatar(uploadPath);
       if (!mounted) return;
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Avatar updated successfully!")),
+          const SnackBar(content: Text("Đã cập nhật ảnh đại diện.")),
         );
       }
     }
@@ -92,7 +96,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       backgroundColor: webBgGray,
       appBar: AppBar(
         title: const Text(
-          "My Profile",
+          "Hồ sơ của tôi",
           style: TextStyle(color: webTextDark, fontWeight: FontWeight.bold),
         ),
         backgroundColor: Colors.white,
@@ -125,7 +129,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               }
             },
             child: Text(
-              _isEditing ? "Cancel" : "Edit",
+              _isEditing ? "Hủy" : "Chỉnh sửa",
               style: const TextStyle(color: webPrimary, fontWeight: FontWeight.bold),
             ),
           ),
@@ -180,7 +184,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             child: const Center(child: CircularProgressIndicator(color: Colors.white)),
                           ),
                         ),
-                      if (_isEditing && !authProvider.isLoading)
+                      if (!authProvider.isLoading)
                         GestureDetector(
                           onTap: _pickImage,
                           child: const CircleAvatar(
@@ -224,17 +228,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 16),
 
             // Profile Information Section
-            _buildSectionTitle("PERSONAL INFORMATION"),
+            _buildSectionTitle("THÔNG TIN CÁ NHÂN"),
             _buildProfileSection([
               _buildEditableRow(
                 icon: Icons.person_outline,
-                label: "Full Name",
+                label: "Họ và tên",
                 controller: _nameController,
                 isEditing: _isEditing,
               ),
               _buildEditableRow(
                 icon: Icons.phone_android_outlined,
-                label: "Phone",
+                label: "Số điện thoại",
                 controller: _phoneController,
                 isEditing: _isEditing,
                 keyboardType: TextInputType.phone,
@@ -246,8 +250,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               _buildStaticRow(
                 icon: Icons.verified_user_outlined,
-                label: "Identity Verified",
-                value: user.verified ? "Verified" : "Unverified",
+                label: "Xác minh danh tính",
+                value: user.verified ? "Đã xác minh" : "Chưa xác minh",
                 valueColor: user.verified ? webEmerald : Colors.grey,
               ),
             ]),
@@ -255,36 +259,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 16),
 
             // Bank Details Section
-            _buildSectionTitle("FINANCIAL SETTINGS"),
+            _buildSectionTitle("THIẾT LẬP TÀI CHÍNH"),
             _buildProfileSection([
               _buildEditableRow(
                 icon: Icons.account_balance_outlined,
-                label: "Linked Bank",
+                label: "Ngân hàng liên kết",
                 controller: _bankNameController,
                 isEditing: _isEditing,
-                hintText: "Enter Bank Name (e.g. MB Bank)",
+                hintText: "Nhập tên ngân hàng (VD: MB Bank)",
               ),
               _buildEditableRow(
                 icon: Icons.account_circle_outlined,
-                label: "Account Holder",
+                label: "Tên chủ tài khoản",
                 controller: _accountHolderController,
                 isEditing: _isEditing,
-                hintText: "Enter Full Name",
+                hintText: "Nhập họ và tên",
               ),
               _buildEditableRow(
                 icon: Icons.numbers,
-                label: "Account Number",
+                label: "Số tài khoản",
                 controller: _accountNumberController,
                 isEditing: _isEditing,
                 keyboardType: TextInputType.number,
-                hintText: "Enter Card/Account Number",
+                hintText: "Nhập số tài khoản/thẻ",
               ),
               if (bank != null)
                 _buildStaticRow(
                   icon: Icons.check_circle_outline,
-                  label: "Status",
-                  value: bank.status,
-                  valueColor: bank.status == 'VERIFIED' ? webEmerald : Colors.orange,
+                  label: "Trạng thái",
+                  value: bank.status == 'VERIFIED' ? "Đã xác minh" : "Chờ xác minh",
+                  valueColor: bank.status == 'VERIFIED'
+                      ? webEmerald
+                      : Colors.orange,
                 ),
             ]),
 
@@ -307,24 +313,71 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                     ElevatedButton(
                       onPressed: authProvider.isLoading ? null : () async {
+                        final String fullName = _nameController.text.trim();
+                        final String phone = _phoneController.text.trim();
+                        final String bankName = _bankNameController.text.trim();
+                        final String accountNumber = _accountNumberController.text.trim();
+                        final String accountHolder = _accountHolderController.text.trim();
+
+                        if (fullName.isEmpty) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Họ và tên không được để trống.")),
+                          );
+                          return;
+                        }
+
+                        final bool hasAnyBankField = bankName.isNotEmpty ||
+                            accountNumber.isNotEmpty ||
+                            accountHolder.isNotEmpty;
+                        final bool hasAllBankFields = bankName.isNotEmpty &&
+                            accountNumber.isNotEmpty &&
+                            accountHolder.isNotEmpty;
+
+                        if (hasAnyBankField && !hasAllBankFields) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("Vui lòng nhập đầy đủ 3 trường thông tin ngân hàng."),
+                            ),
+                          );
+                          return;
+                        }
+
+                        if (accountNumber.isNotEmpty &&
+                            !RegExp(r'^[0-9]{6,30}$').hasMatch(accountNumber)) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("Số tài khoản chỉ gồm chữ số (6-30 ký tự)."),
+                            ),
+                          );
+                          return;
+                        }
+
                         // 1. Update Profile info
                         final profileSuccess = await authProvider.updateProfile(
-                          _nameController.text,
-                          _phoneController.text,
+                          fullName,
+                          phone,
                         );
                         
                         // 2. Update Bank info
-                        final bankSuccess = await authProvider.saveBankAccount(
-                          _bankNameController.text,
-                          _accountNumberController.text,
-                          _accountHolderController.text,
-                        );
+                        bool bankSuccess = true;
+                        if (hasAllBankFields) {
+                          bankSuccess = await authProvider.saveBankAccount(
+                            bankName,
+                            accountNumber,
+                            accountHolder,
+                          );
+                        }
 
                         if (profileSuccess && bankSuccess) {
                           if (!context.mounted) return;
                           setState(() => _isEditing = false);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text("Profile and Bank details updated!")),
+                            const SnackBar(
+                              content: Text("Đã cập nhật hồ sơ và thông tin ngân hàng!"),
+                            ),
                           );
                         }
                       },
@@ -338,7 +391,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       child: authProvider.isLoading 
                           ? const CircularProgressIndicator(color: Colors.white)
-                          : const Text("Save All Changes", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          : const Text(
+                              "Lưu thay đổi",
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                     ),
                   ],
                 ),
@@ -347,7 +406,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const SizedBox(height: 8),
 
             // Quick Access Section
-            _buildSectionTitle("QUICK ACCESS"),
+            _buildSectionTitle("TRUY CẬP NHANH"),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: GridView.count(
@@ -358,10 +417,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 crossAxisSpacing: 12,
                 childAspectRatio: 2.2,
                 children: [
-                  _buildQuickAction(Icons.favorite_outline, "Impact"),
-                  _buildQuickAction(Icons.folder_open_outlined, "Campaigns"),
-                  _buildQuickAction(Icons.calendar_month_outlined, "Appointments"),
-                  _buildQuickAction(Icons.flag_outlined, "Reports"),
+                  _buildQuickAction(
+                    icon: Icons.chat_bubble_outline,
+                    title: "Chat",
+                    onTap: () => _openFeaturePlaceholder(
+                      title: "Chat",
+                      description: "Trò chuyện 1-1 theo chiến dịch sẽ được đồng bộ từ web app.",
+                      icon: Icons.chat_bubble_outline,
+                    ),
+                  ),
+                  _buildQuickAction(
+                    icon: Icons.calendar_month_outlined,
+                    title: "Lịch hẹn",
+                    onTap: () => _openFeaturePlaceholder(
+                      title: "Lịch hẹn",
+                      description: "Lịch hẹn tư vấn và theo dõi chiến dịch sẽ có trong bản mobile kế tiếp.",
+                      icon: Icons.calendar_month_outlined,
+                    ),
+                  ),
+                  _buildQuickAction(
+                    icon: Icons.flag_outlined,
+                    title: "Báo cáo",
+                    onTap: () => _openFeaturePlaceholder(
+                      title: "Báo cáo",
+                      description: "Báo cáo bài viết và nội dung cộng đồng sẽ được tối ưu cho mobile.",
+                      icon: Icons.flag_outlined,
+                    ),
+                  ),
+                  _buildQuickAction(
+                    icon: Icons.folder_open_outlined,
+                    title: "Chiến dịch của tôi",
+                    onTap: () => _openFeaturePlaceholder(
+                      title: "Chiến dịch của tôi",
+                      description: "Theo dõi danh sách chiến dịch cá nhân, tiến độ và cập nhật theo thời gian thực.",
+                      icon: Icons.folder_open_outlined,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -380,7 +471,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   );
                 },
                 icon: const Icon(Icons.logout, color: Colors.redAccent),
-                label: const Text("Log Out", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  "Đăng xuất",
+                  style: TextStyle(
+                    color: Colors.redAccent,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 style: TextButton.styleFrom(
                   minimumSize: const Size(double.infinity, 50),
                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -489,13 +586,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(vertical: 4),
                       border: InputBorder.none,
-                      hintText: hintText ?? "Enter value",
+                      hintText: hintText ?? "Nhập thông tin",
                       hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14, fontWeight: FontWeight.normal),
                     ),
                   )
                 else
                   Text(
-                    controller.text.isEmpty ? "Not set" : controller.text,
+                    controller.text.isEmpty ? "Chưa cập nhật" : controller.text,
                     style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: webTextDark),
                   ),
               ],
@@ -506,23 +603,55 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildQuickAction(IconData icon, String title) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: webBorderGray),
+  void _openFeaturePlaceholder({
+    required String title,
+    required String description,
+    required IconData icon,
+  }) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FeatureHubPlaceholderScreen(
+          title: title,
+          description: description,
+          icon: icon,
+        ),
       ),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: webPrimary),
-          const SizedBox(width: 10),
-          Text(
-            title,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: webTextDark),
-          ),
-        ],
+    );
+  }
+
+  Widget _buildQuickAction({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: webBorderGray),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: webPrimary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: webTextDark,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
