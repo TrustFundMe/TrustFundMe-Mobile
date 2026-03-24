@@ -5,6 +5,7 @@ import '../core/api/api_service.dart';
 import '../core/models/campaign_model.dart';
 import '../core/models/payment_models.dart';
 import 'donation_screen.dart';
+import 'chat_screen.dart';
 
 /// Màn chi tiết chiến dịch: số tiền đã quyên / mục tiêu / % và người ủng hộ gần đây (tương tự web campaigns-details).
 class CampaignDetailScreen extends StatefulWidget {
@@ -156,6 +157,24 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
             icon: const Icon(Icons.arrow_back),
             onPressed: () => Navigator.of(context).pop(_refreshCampaignsList),
           ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.chat_bubble_outline, color: webPrimary),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ChatScreen(
+                      campaignId: widget.campaign.id,
+                      campaignTitle: widget.campaign.title,
+                      staffId: widget.campaign.assignedStaffId,
+                      staffName: widget.campaign.assignedStaffName,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
         ),
         bottomNavigationBar: SafeArea(
           child: Padding(
@@ -290,7 +309,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                               child: CircularProgressIndicator(
                                                 value: ratio,
                                                 strokeWidth: 8,
-                                                backgroundColor: Colors.black.withValues(alpha: 0.1),
+                                                backgroundColor: Colors.black.withOpacity(0.1),
                                                 color: webPrimary,
                                                 strokeCap: StrokeCap.round,
                                               ),
@@ -495,7 +514,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                               _timeAgo(d.createdAt),
                                               style: TextStyle(
                                                 fontSize: 11,
-                                                color: Colors.black.withValues(alpha: 0.5),
+                                                color: Colors.black.withOpacity(0.5),
                                               ),
                                             ),
                                           ],

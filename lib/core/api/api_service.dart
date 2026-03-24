@@ -411,4 +411,42 @@ class ApiService {
       queryParameters: <String, dynamic>{'quantity': quantity},
     );
   }
+
+  // Chat APIs
+
+  Future<Response<dynamic>> getConversations() async {
+    return _dio.get('${ApiConfig.chatUrl}/conversations');
+  }
+
+  Future<Response<dynamic>> getMessagesByConversationId(int conversationId) async {
+    return _dio.get('${ApiConfig.chatUrl}/conversations/$conversationId/messages');
+  }
+
+  Future<Response<dynamic>> createConversation({
+    required int fundOwnerId,
+    required int campaignId,
+    int? staffId,
+  }) async {
+    return _dio.post(
+      '${ApiConfig.chatUrl}/conversations',
+      data: {
+        'fundOwnerId': fundOwnerId,
+        'campaignId': campaignId,
+        if (staffId != null) 'staffId': staffId,
+      },
+    );
+  }
+
+  Future<Response<dynamic>> getConversationByCampaignId(int campaignId) async {
+    return _dio.get('${ApiConfig.chatUrl}/conversations/campaign/$campaignId');
+  }
+
+  // --- Campaign Task & User APIs ---
+  Future<Response<dynamic>> getTaskByCampaignId(int campaignId) async {
+    return _dio.get('${ApiConfig.campaignUrl}/admin/tasks/campaign/$campaignId');
+  }
+
+  Future<Response<dynamic>> getUserById(int userId) async {
+    return _dio.get('${ApiConfig.identityUrl}/users/$userId');
+  }
 }

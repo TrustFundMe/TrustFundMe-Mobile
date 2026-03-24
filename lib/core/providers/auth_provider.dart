@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../api/api_service.dart';
 import '../models/user_model.dart';
 import '../models/bank_account_model.dart';
@@ -18,6 +19,8 @@ class AuthProvider with ChangeNotifier {
   bool get isLoggedIn => _isLoggedIn;
   UserModel? get user => _user;
   BankAccountModel? get bankAccount => _bankAccount;
+
+  Future<String?> get token => const FlutterSecureStorage().read(key: 'jwt_token');
 
   Future<bool> register({
     required String email,

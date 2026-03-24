@@ -53,8 +53,8 @@ class _MainScreenState extends State<MainScreen> {
       ),
       bottomNavigationBar: SafeArea(
         top: false,
-        minimum: const EdgeInsets.only(bottom: 6),
         child: BottomNavigationBar(
+          elevation: 0,
           currentIndex: _selectedIndex,
           onTap: _onItemTapped,
           type: BottomNavigationBarType.fixed,

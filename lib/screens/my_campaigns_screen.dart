@@ -5,7 +5,11 @@ import '../core/providers/auth_provider.dart';
 import '../core/api/api_service.dart';
 import 'create_campaign_screen.dart';
 import 'edit_campaign_screen.dart';
+import 'campaign_detail_screen.dart';
+import '../core/models/campaign_model.dart';
 import 'package:intl/intl.dart';
+import 'feature_hub_placeholder_screen.dart';
+import 'chat_screen.dart';
 
 class MyCampaignsScreen extends StatefulWidget {
   const MyCampaignsScreen({super.key});
@@ -243,36 +247,112 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
                         Text(currencyFormat.format(targetAmount), style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFF84D43))),
                       ],
                     ),
-                    Row(
-                      children: [
-                        ElevatedButton.icon(
-                          onPressed: () {
-                             Navigator.push(
-                               context,
-                               MaterialPageRoute(
-                                 builder: (context) => EditCampaignScreen(
-                                   campaignId: campaign['id'],
-                                 ),
-                               ),
-                             ).then((_) {
-                               setState(() {
-                                 _currentPage = 0;
-                                 _campaigns = [];
-                               });
-                               _fetchMyCampaigns();
-                             });
-                          },
-                          icon: const Icon(Icons.edit, size: 16),
-                          label: const Text("Chỉnh sửa"),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue.withAlpha(200),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      ],
+                    Expanded(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          if (status.toUpperCase() == 'APPROVED') ...[
+                            // Approved: Spending Campaign + View
+                            _buildActionButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const FeatureHubPlaceholderScreen(
+                                      title: "Chiến dịch chi tiêu",
+                                      description: "Tính năng quản lý chi tiêu và giải ngân đang được phát triển cho bản mobile.",
+                                      icon: Icons.account_balance_wallet_outlined,
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: Icons.receipt_long_outlined,
+                              label: "Chi tiêu",
+                              color: const Color(0xFF1A685B), // webEmerald
+                            ),
+                            const SizedBox(width: 6),
+                            _buildActionButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => CampaignDetailScreen(
+                                      campaign: CampaignModel.fromJson(campaign),
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: Icons.visibility_outlined,
+                              label: "Xem",
+                              color: const Color(0xFF4B5563), // webTextGray
+                              isSecondary: true,
+                            ),
+                            const SizedBox(width: 6),
+                            _buildActionButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ChatScreen(
+                                      campaignId: campaign['id'],
+                                      campaignTitle: title,
+                                      staffId: campaign['assignedStaffId'],
+                                      staffName: campaign['assignedStaffName'],
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: Icons.chat_bubble_outline,
+                              label: "Nhắn tin",
+                              color: const Color(0xFF4B5563), // webTextGray
+                              isSecondary: true,
+                            ),
+                          ] else ...[
+                            // Not Approved: Edit + Message
+                            _buildActionButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => EditCampaignScreen(
+                                      campaignId: campaign['id'],
+                                    ),
+                                  ),
+                                ).then((_) {
+                                  setState(() {
+                                    _currentPage = 0;
+                                    _campaigns = [];
+                                  });
+                                  _fetchMyCampaigns();
+                                });
+                              },
+                              icon: Icons.edit_outlined,
+                              label: "Sửa",
+                              color: const Color(0xFFF84D43), // webPrimary
+                            ),
+                            const SizedBox(width: 8),
+                            _buildActionButton(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ChatScreen(
+                                      campaignId: campaign['id'],
+                                      campaignTitle: title,
+                                      staffId: campaign['assignedStaffId'],
+                                      staffName: campaign['assignedStaffName'],
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: Icons.chat_bubble_outline,
+                              label: "Nhắn tin",
+                              color: const Color(0xFF4B5563), // webTextGray
+                              isSecondary: true,
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -298,6 +378,34 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildActionButton({
+    required VoidCallback onPressed,
+    required IconData icon,
+    required String label,
+    required Color color,
+    bool isSecondary = false,
+  }) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 14),
+      label: Text(
+        label,
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isSecondary ? Colors.white : color,
+        foregroundColor: isSecondary ? color : Colors.white,
+        elevation: isSecondary ? 0 : 2,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        minimumSize: const Size(0, 36),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: isSecondary ? BorderSide(color: color.withOpacity(0.5)) : BorderSide.none,
+        ),
       ),
     );
   }

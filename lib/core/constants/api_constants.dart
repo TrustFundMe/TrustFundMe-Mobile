@@ -22,6 +22,11 @@ class ApiConfig {
   static String get mediaUrl => '$baseUrl:$mediaServicePort/api';
   static String get aiUrl => '$baseUrl:$aiServicePort/api';
   static String get paymentUrl => '$baseUrl:$paymentServicePort/api/payments';
+  static String get chatUrl => '$baseUrl:$chatbotServicePort/api';
+  static String get chatWsUrl {
+    final String wsBase = baseUrl.replaceFirst('http', 'ws');
+    return '$wsBase:$chatbotServicePort/ws/websocket';
+  }
 
   // Supabase
   static String get supabaseUrl => dotenv.get('SUPABASE_URL');

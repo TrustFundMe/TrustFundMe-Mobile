@@ -5,6 +5,8 @@ class CampaignModel {
   final String? coverImageUrl;
   final String? categoryName;
   final int? fundOwnerId;
+  final int? assignedStaffId;
+  final String? assignedStaffName;
 
   CampaignModel({
     required this.id,
@@ -13,6 +15,8 @@ class CampaignModel {
     this.coverImageUrl,
     this.categoryName,
     this.fundOwnerId,
+    this.assignedStaffId,
+    this.assignedStaffName,
   });
 
   factory CampaignModel.fromJson(Map<String, dynamic> json) {
@@ -23,6 +27,8 @@ class CampaignModel {
       coverImageUrl: json['coverImageUrl'] as String?,
       categoryName: json['categoryName'] as String?,
       fundOwnerId: json['fundOwnerId'] as int?,
+      assignedStaffId: json['assignedStaffId'] as int?,
+      assignedStaffName: json['assignedStaffName'] as String?,
     );
   }
 }

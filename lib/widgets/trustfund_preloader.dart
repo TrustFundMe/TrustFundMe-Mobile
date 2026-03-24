@@ -62,7 +62,7 @@ class _TrustFundPreloaderState extends State<TrustFundPreloader> {
                 child: CircularProgressIndicator(
                   strokeWidth: 3,
                   color: _accent,
-                  backgroundColor: _accent.withValues(alpha: 0.12),
+                  backgroundColor: _accent.withOpacity(0.12),
                 ),
               ),
               const SizedBox(height: 28),
@@ -102,7 +102,7 @@ class _TrustFundPreloaderState extends State<TrustFundPreloader> {
                 'Đang tải',
                 style: TextStyle(
                   fontSize: 13,
-                  color: _text.withValues(alpha: 0.55),
+                  color: _text.withOpacity(0.55),
                   fontWeight: FontWeight.w500,
                 ),
               ),

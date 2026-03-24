@@ -45,6 +45,7 @@ dependencies:
   webview_flutter: ^4.4.0
   google_sign_in: ^7.2.0
   image_cropper: ^11.0.0
+  stomp_dart_client: ^3.0.1
 
 dev_dependencies:
   flutter_test:

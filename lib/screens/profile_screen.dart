@@ -8,6 +8,7 @@ import 'email_verification_screen.dart';
 import 'feature_hub_placeholder_screen.dart';
 import 'login_screen.dart';
 import 'my_campaigns_screen.dart';
+import 'chat_list_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -166,7 +167,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Container(
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          border: Border.all(color: webPrimary.withValues(alpha: 0.2), width: 4),
+                          border: Border.all(color: webPrimary.withOpacity(0.2), width: 4),
                         ),
                         child: CircleAvatar(
                           radius: 55,
@@ -210,7 +211,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                     decoration: BoxDecoration(
-                      color: webEmerald.withValues(alpha: 0.1),
+                      color: webEmerald.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
@@ -278,15 +279,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 keyboardType: TextInputType.number,
                 hintText: "Nhập số tài khoản/thẻ",
               ),
-              if (bank != null)
-                _buildStaticRow(
-                  icon: Icons.check_circle_outline,
-                  label: "Trạng thái",
-                  value: bank.status == 'VERIFIED' ? "Đã xác minh" : "Chờ xác minh",
-                  valueColor: bank.status == 'VERIFIED'
-                      ? webEmerald
-                      : Colors.orange,
-                ),
             ]),
 
             const SizedBox(height: 24),
@@ -382,7 +374,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         minimumSize: const Size(double.infinity, 54),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         elevation: 4,
-                        shadowColor: webPrimary.withValues(alpha: 0.4),
+                        shadowColor: webPrimary.withOpacity(0.4),
                       ),
                       child: authProvider.isLoading 
                           ? const CircularProgressIndicator(color: Colors.white)
@@ -424,11 +416,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _buildQuickAction(
                     icon: Icons.chat_bubble_outline,
                     title: "Chat",
-                    onTap: () => _openFeaturePlaceholder(
-                      title: "Chat",
-                      description: "Trò chuyện 1-1 theo chiến dịch sẽ được đồng bộ từ web app.",
-                      icon: Icons.chat_bubble_outline,
-                    ),
+                    onTap: () {
+                      debugPrint("ProfileScreen: Chat button tapped!");
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text("Đang mở hộp thoại tin nhắn..."), duration: Duration(seconds: 1),),
+                      );
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const ChatListScreen()),
+                      );
+                    },
                   ),
                   _buildQuickAction(
                     icon: Icons.folder_open_outlined,

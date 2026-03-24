@@ -42,6 +42,9 @@ class HomeScreen extends StatelessWidget {
             // 1. Hero section
             _buildHero(context, webPrimary, webTextDark, webTextGray, webEmerald),
 
+            // 2. About Us section
+            _buildAboutUs(context, webPrimary, webTextDark, webTextGray, webEmerald),
+
             // 3. Projects section
             _buildProjects(
               context,
@@ -63,115 +66,81 @@ class HomeScreen extends StatelessWidget {
 
   Widget _buildHero(
       BuildContext context, Color primary, Color dark, Color gray, Color emerald) {
-    final double screenHeight = MediaQuery.of(context).size.height;
-    final double heroHeight = math.max(320, math.min(screenHeight * 0.58, 460));
     return Container(
       width: double.infinity,
-      height: heroHeight,
-      clipBehavior: Clip.antiAlias,
+      height: 450,
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(32),
-          bottomRight: Radius.circular(32),
+          bottomLeft: Radius.circular(40),
+          bottomRight: Radius.circular(40),
         ),
       ),
       child: Stack(
+        clipBehavior: Clip.none,
         children: [
-          // Background Dots Pattern
           Positioned.fill(
             child: CustomPaint(
-              painter: _DotPainter(color: Colors.grey.withValues(alpha: 0.1)),
+              painter: _DotPainter(color: Colors.grey.withOpacity(0.06)),
             ),
           ),
+          _buildRotatingBlob(
+            color: const Color(0xFFFFE5E5).withOpacity(0.4),
+            size: 320, top: -40, left: -60, duration: 25.seconds,
+          ),
+          _buildRotatingBlob(
+            color: emerald.withOpacity(0.12),
+            size: 350, bottom: -80, right: -100, duration: 30.seconds,
+          ),
+          
+          // Floating images cluster per screenshot
+          Positioned(
+            right: 10, top: 80,
+            child: _buildCollageImage(
+              url: 'https://images.unsplash.com/photo-1593113598332-cd288d649433?q=80&w=1280&auto=format&fit=crop',
+              size: 130, borderRadius: 24,
+            ).animate(delay: 200.ms).fadeIn(),
+          ),
+          Positioned(
+            right: -20, top: 200,
+            child: _buildCollageImage(
+              url: 'https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?q=80&w=1280&auto=format&fit=crop',
+              size: 140, borderRadius: 24,
+            ).animate(delay: 400.ms).fadeIn(),
+          ),
+          Positioned(
+            right: 120, bottom: 20,
+            child: _buildCollageImage(
+              url: 'https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?q=80&w=1280&auto=format&fit=crop',
+              size: 110, borderRadius: 24,
+            ).animate(delay: 600.ms).fadeIn(),
+          ),
 
-          // Rotating Blobs (Background Animations)
-          _buildRotatingBlob(
-            color: primary.withValues(alpha: 0.15),
-            size: 250,
-            top: -50,
-            left: -50,
-            duration: 10.seconds,
-            driftX: 14,
-            driftY: 10,
-          ),
-          _buildRotatingBlob(
-            color: emerald.withValues(alpha: 0.12),
-            size: 300,
-            bottom: -80,
-            right: -80,
-            duration: 15.seconds,
-            isClockwise: false,
-            driftX: 16,
-            driftY: 12,
-          ),
-          _buildRotatingBlob(
-            color: primary.withValues(alpha: 0.08),
-            size: 170,
-            top: 120,
-            right: 60,
-            duration: 12.seconds,
-            driftX: 10,
-            driftY: 8,
-          ),
-
-          // Text + actions occupy ~70% hero height
-          Positioned.fill(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-              child: LayoutBuilder(
-                builder: (BuildContext context, BoxConstraints constraints) {
-                  return Align(
-                    alignment: Alignment.topCenter,
-                    child: SizedBox(
-                      width: constraints.maxWidth,
-                      height: constraints.maxHeight * 0.92,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          RichText(
-                            textAlign: TextAlign.center,
-                            text: TextSpan(
-                              style: TextStyle(
-                                fontSize: 42,
-                                fontWeight: FontWeight.w900,
-                                color: dark,
-                                height: 0.98,
-                              ),
-                              children: [
-                                const TextSpan(text: "Minh Bạch "),
-                                TextSpan(text: "Trong\nTừng", style: TextStyle(color: primary)),
-                                const TextSpan(text: " Khoản\nQuyên Góp"),
-                              ],
-                            ),
-                          ).animate().fadeIn(duration: 600.ms).slideX(begin: -0.1),
-                          const SizedBox(height: 10),
-                          Text(
-                            "Theo dõi dòng tiền theo từng hạng mục, từng chiến dịch.",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: gray.withValues(alpha: 0.95),
-                              fontWeight: FontWeight.w500,
-                              height: 1.35,
-                            ),
-                          ).animate().fadeIn(delay: 120.ms, duration: 450.ms),
-                          const Spacer(),
-                          _buildHeroActions(context, primary, emerald)
-                              .animate()
-                              .fadeIn(delay: 300.ms)
-                              .slideY(begin: 0.2),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
+          // Text and Actions on the left
+          Positioned(
+            left: 24, top: 60,
+            width: MediaQuery.of(context).size.width * 0.65,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RichText(
+                  text: TextSpan(
+                    style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: dark, height: 1.1),
+                    children: [
+                      const TextSpan(text: "Minh Bạch "),
+                      TextSpan(text: "Trong\nTừng", style: TextStyle(color: primary)),
+                      const TextSpan(text: " Khoản\nQuyên Góp"),
+                    ],
+                  ),
+                ).animate().fadeIn(),
+                const SizedBox(height: 24),
+                _buildHeroActions(context, primary, dark, emerald).animate(delay: 800.ms).fadeIn(),
+              ],
             ),
           ),
         ],
       ),
-    ).animate().fadeIn(duration: 800.ms);
+    );
   }
 
   Widget _buildRotatingBlob({
@@ -218,112 +187,198 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHeroActions(BuildContext context, Color primary, Color emerald) {
-    final auth = context.read<AuthProvider>();
-    final bool isFundOwner = auth.user?.role.toUpperCase() == 'FUND_OWNER';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ElevatedButton(
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const CampaignsScreen(),
-              ),
-            );
-          },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: primary,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 52),
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            elevation: 8,
-            shadowColor: primary.withValues(alpha: 0.28),
+  Widget _buildCollageImage(
+      {required String url, required double size, required double borderRadius}) {
+    return Container(
+      width: size,
+      height: size,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(borderRadius),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
           ),
-          child: const Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.favorite_outline, size: 18),
-              SizedBox(width: 8),
-              Text(
-                "Quyên góp ngay",
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-              ),
-            ],
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(borderRadius - 4),
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => Container(
+            color: const Color(0xFFF3F4F6),
+            child: const Icon(Icons.image_outlined, color: Colors.grey),
           ),
         ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-          Expanded(
-            child: OutlinedButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const CampaignsScreen(),
-                  ),
-                );
-              },
-              style: OutlinedButton.styleFrom(
-                foregroundColor: primary,
-                side: BorderSide(color: primary.withValues(alpha: 0.45)),
-                backgroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 44),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.groups_2_outlined, size: 16),
-                  SizedBox(width: 6),
-                  Text(
-                    "Cộng đồng",
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
+      ),
+    );
+  }
+
+  Widget _buildHeroActions(BuildContext context, Color primary, Color dark, Color emerald) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        _buildButton(
+          text: "Quyên góp ngay",
+          color: primary,
+          textColor: Colors.white,
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => const CampaignsScreen()),
+            );
+          },
+        ),
+        _buildButton(
+          text: "Xem cộng đồng",
+          color: emerald.withOpacity(0.12),
+          textColor: emerald,
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => const CampaignsScreen()),
+            );
+          },
+        ),
+        _buildButton(
+          text: "Tạo chiến dịch →",
+          color: dark.withOpacity(0.08),
+          textColor: dark,
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (context) => const CreateCampaignScreen()),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildButton({
+    required String text,
+    required Color color,
+    required Color textColor,
+    required VoidCallback onPressed,
+  }) {
+    return ElevatedButton(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: textColor,
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+      ),
+    );
+  }
+
+  Widget _buildAboutUs(BuildContext context, Color primary, Color dark, Color gray, Color emerald) {
+    return Container(
+      margin: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 24),
+      padding: const EdgeInsets.all(24.0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(32),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: OutlinedButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => isFundOwner
-                        ? const CampaignsScreen()
-                        : const CreateCampaignScreen(),
-                  ),
-                );
-              },
-              style: OutlinedButton.styleFrom(
-                foregroundColor: primary,
-                side: BorderSide(color: primary.withValues(alpha: 0.45)),
-                backgroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 44),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 24,
+                height: 2,
+                color: primary,
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.add_circle_outline, size: 16),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      isFundOwner ? "Chiến dịch của tôi" : "Tạo chiến dịch",
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                    ),
-                  ),
-                ],
+              const SizedBox(width: 8),
+              Text(
+                "VỀ CHÚNG TÔI",
+                style: TextStyle(
+                  color: primary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.2,
+                ),
               ),
+            ],
+          ).animate().fadeIn(),
+          const SizedBox(height: 12),
+          Text(
+            "Vì một thế giới\ntốt đẹp hơn",
+            style: TextStyle(
+              color: dark,
+              fontSize: 28,
+              fontWeight: FontWeight.w900,
+              height: 1.2,
             ),
+          ).animate().fadeIn(delay: 200.ms),
+          const SizedBox(height: 16),
+          Text(
+            "Chúng tôi tin rằng sự minh bạch là chìa khóa để xây dựng niềm tin trong các hoạt động thiện nguyện.",
+            style: TextStyle(
+              color: gray.withOpacity(0.7),
+              fontSize: 15,
+              height: 1.5,
+            ),
+          ).animate().fadeIn(delay: 400.ms),
+          const SizedBox(height: 28),
+          _buildFeatureRow(
+            icon: Icons.verified_rounded,
+            title: "Báo cáo minh bạch 24/7",
+            color: const Color(0xFF1B5E20),
+          ).animate().fadeIn(delay: 600.ms),
+          const SizedBox(height: 16),
+          _buildFeatureRow(
+            icon: Icons.shield_rounded,
+            title: "Bảo mật thông tin đóng góp",
+            color: const Color(0xFF00695C),
+          ).animate().fadeIn(delay: 700.ms),
+          const SizedBox(height: 16),
+          _buildFeatureRow(
+            icon: Icons.auto_awesome_rounded,
+            title: "Hỗ trợ công nghệ AI tiên tiến",
+            color: const Color(0xFF37474F),
+          ).animate().fadeIn(delay: 800.ms),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFeatureRow({required IconData icon, required String title, required Color color}) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            shape: BoxShape.circle,
           ),
-          ],
+          child: Icon(icon, color: color, size: 22),
+        ),
+        const SizedBox(width: 16),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF1F2937),
+          ),
         ),
       ],
     );
@@ -401,7 +456,7 @@ class HomeScreen extends StatelessWidget {
         image: DecorationImage(
           image: const NetworkImage("https://www.transparenttextures.com/patterns/carbon-fibre.png"),
           opacity: 0.1,
-          colorFilter: ColorFilter.mode(emerald.withValues(alpha: 0.1), BlendMode.srcIn),
+          colorFilter: ColorFilter.mode(emerald.withOpacity(0.1), BlendMode.srcIn),
         ),
       ),
       child: Column(
@@ -426,7 +481,7 @@ class HomeScreen extends StatelessWidget {
               minimumSize: const Size(double.infinity, 56),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
               elevation: 10,
-              shadowColor: primary.withValues(alpha: 0.5),
+              shadowColor: primary.withOpacity(0.5),
             ),
             child: const Text("Bắt đầu ngay", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ).animate().fadeIn(delay: 120.ms),
@@ -454,7 +509,7 @@ class _ProjectCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
+            color: Colors.black.withOpacity(0.08),
             blurRadius: 15,
             offset: const Offset(0, 8),
           ),
