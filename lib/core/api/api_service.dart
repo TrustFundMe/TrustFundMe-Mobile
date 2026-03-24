@@ -64,6 +64,104 @@ class ApiService {
     );
   }
 
+  /// Active feed (status=PUBLISHED, visibility rules on server).
+  Future<Response<dynamic>> getFeedPosts({
+    int page = 0,
+    int size = 10,
+    String sort = 'createdAt,desc',
+    int? categoryId,
+  }) async {
+    final Map<String, dynamic> q = <String, dynamic>{
+      'page': page,
+      'size': size,
+      'sort': sort,
+    };
+    if (categoryId != null) {
+      q['categoryId'] = categoryId;
+    }
+    return _dio.get(
+      '${ApiConfig.campaignUrl}/feed-posts',
+      queryParameters: q,
+    );
+  }
+
+  /// Forum / feed topic categories (same contract as danbox `GET /api/forum/categories`).
+  Future<Response<dynamic>> getForumCategories() async {
+    return _dio.get('${ApiConfig.campaignUrl}/forum/categories');
+  }
+
+  Future<Response<dynamic>> getFeedPostById(int id) async {
+    return _dio.get('${ApiConfig.campaignUrl}/feed-posts/$id');
+  }
+
+  Future<Response<dynamic>> createFeedPost(Map<String, dynamic> body) async {
+    return _dio.post(
+      '${ApiConfig.campaignUrl}/feed-posts',
+      data: body,
+    );
+  }
+
+  Future<Response<dynamic>> toggleFeedPostLike(int postId) async {
+    return _dio.post('${ApiConfig.campaignUrl}/feed-posts/$postId/like');
+  }
+
+  /// Backend returns full `FeedPostResponse`; parse `isLiked`, `likeCount` (and legacy `liked`).
+  Future<Response<dynamic>> toggleFeedPostCommentLike(int commentId) async {
+    return _dio.post(
+      '${ApiConfig.campaignUrl}/feed-posts/comments/$commentId/like',
+    );
+  }
+
+  Future<Response<dynamic>> updateFeedPostComment(int commentId, String content) async {
+    return _dio.put(
+      '${ApiConfig.campaignUrl}/feed-posts/comments/$commentId',
+      data: <String, dynamic>{'content': content},
+    );
+  }
+
+  Future<Response<dynamic>> deleteFeedPostComment(int commentId) async {
+    return _dio.delete(
+      '${ApiConfig.campaignUrl}/feed-posts/comments/$commentId',
+    );
+  }
+
+  /// Marks post(s) seen — increments server view count for authenticated user when new.
+  Future<Response<dynamic>> markUserPostSeen(int postId) async {
+    return _dio.post(
+      '${ApiConfig.campaignUrl}/user-post-seen',
+      data: <String, dynamic>{'postId': postId},
+    );
+  }
+
+  Future<Response<dynamic>> submitFlag({
+    int? postId,
+    int? campaignId,
+    required String reason,
+  }) async {
+    return _dio.post(
+      '${ApiConfig.campaignUrl}/flags',
+      data: <String, dynamic>{
+        if (postId != null) 'postId': postId,
+        if (campaignId != null) 'campaignId': campaignId,
+        'reason': reason,
+      },
+    );
+  }
+
+  Future<Response<dynamic>> getMediaByPostId(int postId) async {
+    return _dio.get('${ApiConfig.mediaUrl}/media/posts/$postId');
+  }
+
+  Future<Response<dynamic>> updateMedia(
+    int mediaId,
+    Map<String, dynamic> body,
+  ) async {
+    return _dio.patch(
+      '${ApiConfig.mediaUrl}/media/$mediaId',
+      data: body,
+    );
+  }
+
   Future<Response<dynamic>> login(String username, String password) async {
     final Response<dynamic> response = await _dio.post(
       '${ApiConfig.identityUrl}${ApiConfig.loginEndpoint}',
@@ -307,6 +405,7 @@ class ApiService {
 
   Future<Response<dynamic>> uploadMedia(
     File file, {
+    int? postId,
     int? campaignId,
     String? mediaType,
     String? description,
@@ -321,6 +420,7 @@ class ApiService {
         file.path,
         filename: fileName,
       ),
+      if (postId != null) 'postId': postId,
       if (campaignId != null) 'campaignId': campaignId,
       if (mediaType != null) 'mediaType': mediaType,
       if (description != null) 'description': description,

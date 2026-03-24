@@ -66,6 +66,9 @@ class HomeScreen extends StatelessWidget {
 
   Widget _buildHero(
       BuildContext context, Color primary, Color dark, Color gray, Color emerald) {
+    final double screenW = MediaQuery.sizeOf(context).width;
+    final bool isHeroMobile = screenW < 600;
+
     return Container(
       width: double.infinity,
       height: 450,
@@ -126,14 +129,30 @@ class HomeScreen extends StatelessWidget {
                 RichText(
                   text: TextSpan(
                     style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: dark, height: 1.1),
-                    children: [
-                      const TextSpan(text: "Minh Bạch "),
-                      TextSpan(text: "Trong\nTừng", style: TextStyle(color: primary)),
-                      const TextSpan(text: " Khoản\nQuyên Góp"),
-                    ],
+                    children: isHeroMobile
+                        ? [
+                            const TextSpan(text: "Minh Bạch\n"),
+                            TextSpan(
+                              text: "Trong\n",
+                              style: TextStyle(color: primary),
+                            ),
+                            TextSpan(
+                              text: "Từng\n",
+                              style: TextStyle(color: primary),
+                            ),
+                            const TextSpan(text: "Khoản\nQuyên Góp"),
+                          ]
+                        : [
+                            const TextSpan(text: "Minh Bạch "),
+                            TextSpan(
+                              text: "Trong\nTừng",
+                              style: TextStyle(color: primary),
+                            ),
+                            const TextSpan(text: " Khoản\nQuyên Góp"),
+                          ],
                   ),
                 ).animate().fadeIn(),
-                const SizedBox(height: 24),
+                SizedBox(height: isHeroMobile ? 36 : 30),
                 _buildHeroActions(context, primary, dark, emerald).animate(delay: 800.ms).fadeIn(),
               ],
             ),
@@ -219,24 +238,24 @@ class HomeScreen extends StatelessWidget {
   }
 
   Widget _buildHeroActions(BuildContext context, Color primary, Color dark, Color emerald) {
+    final bool isMobile = MediaQuery.sizeOf(context).width < 600;
+    final double btnFont = isMobile ? 15.5 : 13;
+    final EdgeInsets btnPad = isMobile
+        ? const EdgeInsets.symmetric(horizontal: 26, vertical: 18)
+        : const EdgeInsets.symmetric(horizontal: 20, vertical: 14);
+    final double btnRadius = isMobile ? 16 : 14;
+
     return Wrap(
-      spacing: 12,
-      runSpacing: 12,
+      spacing: isMobile ? 14 : 12,
+      runSpacing: isMobile ? 14 : 12,
       children: [
         _buildButton(
           text: "Quyên góp ngay",
           color: primary,
           textColor: Colors.white,
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (context) => const CampaignsScreen()),
-            );
-          },
-        ),
-        _buildButton(
-          text: "Xem cộng đồng",
-          color: emerald.withOpacity(0.12),
-          textColor: emerald,
+          padding: btnPad,
+          fontSize: btnFont,
+          borderRadius: btnRadius,
           onPressed: () {
             Navigator.of(context).push(
               MaterialPageRoute(builder: (context) => const CampaignsScreen()),
@@ -247,6 +266,9 @@ class HomeScreen extends StatelessWidget {
           text: "Tạo chiến dịch →",
           color: dark.withOpacity(0.08),
           textColor: dark,
+          padding: btnPad,
+          fontSize: btnFont,
+          borderRadius: btnRadius,
           onPressed: () {
             Navigator.of(context).push(
               MaterialPageRoute(builder: (context) => const CreateCampaignScreen()),
@@ -262,6 +284,9 @@ class HomeScreen extends StatelessWidget {
     required Color color,
     required Color textColor,
     required VoidCallback onPressed,
+    EdgeInsets? padding,
+    double? fontSize,
+    double? borderRadius,
   }) {
     return ElevatedButton(
       onPressed: onPressed,
@@ -269,14 +294,17 @@ class HomeScreen extends StatelessWidget {
         backgroundColor: color,
         foregroundColor: textColor,
         elevation: 0,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        padding: padding ?? const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(borderRadius ?? 14),
         ),
       ),
       child: Text(
         text,
-        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: fontSize ?? 13,
+        ),
       ),
     );
   }

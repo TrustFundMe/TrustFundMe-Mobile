@@ -1,5 +1,18 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../core/api/api_service.dart';
+import '../core/models/feed_post_model.dart';
+import '../core/models/forum_category_model.dart';
+import '../core/providers/auth_provider.dart';
+import 'feed_post_detail_screen.dart';
+import '../widgets/feed/create_feed_post_sheet.dart';
+import '../widgets/feed/feed_comments_sheet.dart';
+import '../widgets/feed/feed_dwell_tracker.dart';
+
+enum _FeedQuickFilter { all, unseen, seen, hot }
 
 class CommunityScreen extends StatefulWidget {
   const CommunityScreen({super.key});
@@ -9,305 +22,466 @@ class CommunityScreen extends StatefulWidget {
 }
 
 class _CommunityScreenState extends State<CommunityScreen> {
-  static const Color _primary = Color(0xFFF84D43);
   static const Color _bg = Color(0xFFF9FAFB);
   static const Color _text = Color(0xFF111827);
   static const Color _muted = Color(0xFF6B7280);
+  static const String _seenPrefsKey = 'community_feed_seen_v1';
 
-  final ApiService _apiService = ApiService();
+  final ApiService _api = ApiService();
+  final ScrollController _scroll = ScrollController();
+  final TextEditingController _search = TextEditingController();
 
-  final List<_FeedPost> _posts = const <_FeedPost>[
-    _FeedPost(
-      id: 1,
-      author: "Nguyễn Văn A",
-      role: "Người gây quỹ",
-      type: "UPDATE",
-      timeAgo: "2 giờ trước",
-      title: "Cập nhật về dự án xây trường học",
-      caption:
-          "Chúng tôi rất vui mừng thông báo rằng dự án xây trường học tại vùng cao đã hoàn thành 70%. Cảm ơn tất cả các nhà tài trợ đã đóng góp.",
-      imageUrl:
-          "https://placehold.co/1200x900?text=Cap+nhat+du+an+xay+truong&bg=FEE2E2&color=111827",
-      likes: 124,
-      comments: 12,
-      campaignTitle: "Xây dựng trường học cho trẻ em vùng cao",
-      campaignProgress: 0.70,
-    ),
-    _FeedPost(
-      id: 2,
-      author: "Trần Thị B",
-      role: "Người gây quỹ",
-      type: "ANNOUNCEMENT",
-      timeAgo: "5 giờ trước",
-      title: null,
-      caption:
-          "Hôm nay chúng tôi đã trao 500 phần quà cho các em nhỏ vùng cao. Nụ cười của các em là động lực lớn nhất của chúng tôi.",
-      imageUrl:
-          "https://placehold.co/1200x900?text=Trao+500+phan+qua&bg=E0F2FE&color=111827",
-      likes: 256,
-      comments: 19,
-      campaignTitle: "Hỗ trợ quà Tết cho gia đình khó khăn",
-      campaignProgress: 0.60,
-    ),
-    _FeedPost(
-      id: 3,
-      author: "Lê Văn C",
-      role: "Nhà hảo tâm",
-      type: "NEWS",
-      timeAgo: "1 ngày trước",
-      title: "Thông báo về chương trình từ thiện mới",
-      caption:
-          "Chúng tôi sẽ tổ chức chương trình từ thiện mới vào cuối tháng này. Mọi người hãy đóng góp để giúp đỡ những hoàn cảnh khó khăn.",
-      imageUrl:
-          "https://placehold.co/1200x900?text=Thong+bao+chuong+trinh+moi&bg=F3F4F6&color=111827",
-      likes: 89,
-      comments: 8,
-    ),
-    _FeedPost(
-      id: 4,
-      author: "Phạm Thị D",
-      role: "Tình nguyện viên",
-      type: "ANNOUNCEMENT",
-      timeAgo: "3 ngày trước",
-      title: "Kết quả chiến dịch gây quỹ",
-      caption:
-          "Chúng tôi đã gây quỹ được 500 triệu đồng trong tháng vừa qua. Cảm ơn tất cả các nhà hảo tâm đã đồng hành.",
-      imageUrl:
-          "https://placehold.co/1200x900?text=Ket+qua+gay+quy+thang&bg=E2E8F0&color=111827",
-      likes: 445,
-      comments: 26,
-      campaignTitle: "Chương trình từ thiện cuối năm",
-      campaignProgress: 0.62,
-    ),
-  ];
+  List<FeedPostModel> _posts = <FeedPostModel>[];
+  final Map<int, List<String>> _imageUrlsByPostId = <int, List<String>>{};
+  final Set<int> _dwellDone = <int>{};
+  final Set<int> _seenPostIds = <int>{};
+  List<ForumCategoryModel> _forumCategories = <ForumCategoryModel>[];
 
-  int _selectedFilter = 0;
-  late final List<bool> _likedStates = _posts.map((_) => false).toList();
-  late final List<int> _commentCounts = _posts.map((post) => post.comments).toList();
-  final Map<int, List<_CommentVm>> _commentsByPostId = <int, List<_CommentVm>>{};
-  static const List<String> _filters = <String>[
-    'Tất cả',
-    'Update',
-    'Thông báo',
-    'Tin tức',
-  ];
+  int? _selectedCategoryId;
+  _FeedQuickFilter _quickFilter = _FeedQuickFilter.all;
+  int _feedTotalElements = 0;
 
-  List<int> get _visibleIndexes {
-    if (_selectedFilter == 0) {
-      return List<int>.generate(_posts.length, (int index) => index);
+  bool _loading = true;
+  bool _loadingMore = false;
+  int _page = 0;
+  bool _hasMore = true;
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_onScroll);
+    _initSeenFromPrefs();
+    _loadForumCategories();
+    _load(refresh: true);
+  }
+
+  Future<void> _initSeenFromPrefs() async {
+    try {
+      final SharedPreferences p = await SharedPreferences.getInstance();
+      final List<String> raw =
+          p.getStringList(_seenPrefsKey) ?? <String>[];
+      final Set<int> next = <int>{};
+      for (final String s in raw) {
+        final int? id = int.tryParse(s);
+        if (id != null) next.add(id);
+      }
+      if (mounted) {
+        setState(() {
+          _seenPostIds.clear();
+          _seenPostIds.addAll(next);
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadForumCategories() async {
+    try {
+      final Response<dynamic> res = await _api.getForumCategories();
+      final dynamic data = res.data;
+      if (data is! List<dynamic>) return;
+      final List<ForumCategoryModel> list = data
+          .whereType<Map<String, dynamic>>()
+          .map(ForumCategoryModel.fromJson)
+          .toList();
+      if (mounted) setState(() => _forumCategories = list);
+    } catch (_) {}
+  }
+
+  Future<void> _persistSeenPost(int postId) async {
+    if (_seenPostIds.contains(postId)) return;
+    if (mounted) {
+      setState(() => _seenPostIds.add(postId));
+    } else {
+      _seenPostIds.add(postId);
+    }
+    try {
+      final SharedPreferences p = await SharedPreferences.getInstance();
+      await p.setStringList(
+        _seenPrefsKey,
+        _seenPostIds.map((int e) => '$e').toList(),
+      );
+    } catch (_) {}
+  }
+
+  void _setCategoryAndReload(int? categoryId) {
+    setState(() {
+      _selectedCategoryId = categoryId;
+      _quickFilter = _FeedQuickFilter.all;
+    });
+    _load(refresh: true);
+  }
+
+  void _setQuickFilterAndReload(_FeedQuickFilter f) {
+    setState(() {
+      _quickFilter = f;
+      _selectedCategoryId = null;
+    });
+    _load(refresh: true);
+  }
+
+  static Color? _parseHexColor(String? hex) {
+    if (hex == null || hex.isEmpty) return null;
+    String h = hex.trim();
+    if (h.startsWith('#')) h = h.substring(1);
+    if (h.length == 6) h = 'FF$h';
+    final int? v = int.tryParse(h, radix: 16);
+    if (v == null) return null;
+    return Color(v);
+  }
+
+  static bool _isHotPost(FeedPostModel p) =>
+      p.viewCount >= 20 || p.likeCount >= 10;
+
+  String? _categoryLabel(FeedPostModel p) {
+    if (p.categoryId == null) return null;
+    for (final ForumCategoryModel c in _forumCategories) {
+      if (c.id == p.categoryId) return c.name;
+    }
+    return '#${p.categoryId}';
+  }
+
+  Color? _categoryColorForPost(FeedPostModel p) {
+    if (p.categoryId == null) return null;
+    for (final ForumCategoryModel c in _forumCategories) {
+      if (c.id == p.categoryId) return _parseHexColor(c.color);
+    }
+    return const Color(0xFF6366F1);
+  }
+
+  @override
+  void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
+    _search.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_hasMore || _loadingMore || _loading) return;
+    if (_scroll.position.pixels > _scroll.position.maxScrollExtent - 240) {
+      _load();
+    }
+  }
+
+  static String _stripHtml(String raw) {
+    return raw
+        .replaceAll(RegExp(r'<[^>]*>'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
+  static String _timeAgo(String raw) {
+    if (raw.isEmpty) return '';
+    final DateTime? d = DateTime.tryParse(raw.replaceFirst(' ', 'T'));
+    if (d == null) return raw;
+    final int sec = DateTime.now().difference(d).inSeconds;
+    if (sec < 60) return 'Vừa xong';
+    if (sec < 3600) return '${sec ~/ 60} phút trước';
+    if (sec < 86400) return '${sec ~/ 3600} giờ trước';
+    if (sec < 604800) return '${sec ~/ 86400} ngày trước';
+    return '${d.day}/${d.month}/${d.year}';
+  }
+
+  Future<void> _hydrateImages(Iterable<FeedPostModel> posts) async {
+    for (final FeedPostModel p in posts) {
+      if (_imageUrlsByPostId.containsKey(p.id)) continue;
+      try {
+        final Response<dynamic> res = await _api.getMediaByPostId(p.id);
+        final dynamic data = res.data;
+        final List<String> urls = <String>[];
+        if (data is List<dynamic>) {
+          for (final dynamic e in data) {
+            if (e is Map<String, dynamic> && e['url'] != null) {
+              urls.add(e['url'].toString());
+            }
+          }
+        }
+        if (mounted) {
+          setState(() => _imageUrlsByPostId[p.id] = urls);
+        }
+      } catch (_) {
+        if (mounted) setState(() => _imageUrlsByPostId[p.id] = <String>[]);
+      }
+    }
+  }
+
+  Future<void> _load({bool refresh = false}) async {
+    if (refresh) {
+      _page = 0;
+      _hasMore = true;
+    }
+    if (!_hasMore && !refresh) return;
+
+    if (refresh) {
+      setState(() => _loading = true);
+    } else {
+      setState(() => _loadingMore = true);
     }
 
-    final String expectedType = switch (_selectedFilter) {
-      1 => 'UPDATE',
-      2 => 'ANNOUNCEMENT',
-      3 => 'NEWS',
-      _ => '',
-    };
+    try {
+      final int? categoryParam =
+          _quickFilter == _FeedQuickFilter.all ? _selectedCategoryId : null;
+      final Response<dynamic> res = await _api.getFeedPosts(
+        page: refresh ? 0 : _page,
+        size: 12,
+        categoryId: categoryParam,
+      );
+      final dynamic data = res.data;
+      if (data is! Map<String, dynamic>) {
+        throw Exception('Dữ liệu không hợp lệ');
+      }
+      final List<dynamic> content =
+          data['content'] as List<dynamic>? ?? <dynamic>[];
+      final int totalPages = (data['totalPages'] as num?)?.toInt() ?? 0;
+      final int totalElements =
+          (data['totalElements'] as num?)?.toInt() ?? 0;
+      final List<FeedPostModel> chunk = content
+          .whereType<Map<String, dynamic>>()
+          .map(FeedPostModel.fromJson)
+          .toList();
 
-    return _posts
-        .asMap()
-        .entries
-        .where((MapEntry<int, _FeedPost> entry) => entry.value.type == expectedType)
-        .map((MapEntry<int, _FeedPost> entry) => entry.key)
-        .toList();
+      if (!mounted) return;
+      setState(() {
+        if (refresh) {
+          _posts = chunk;
+          _imageUrlsByPostId.clear();
+          _dwellDone.clear();
+          _feedTotalElements = totalElements;
+          _page = 1;
+        } else {
+          _posts.addAll(chunk);
+          _page += 1;
+        }
+        _hasMore = (refresh ? 1 : _page) < totalPages;
+      });
+      await _hydrateImages(chunk);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không tải được feed.')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadingMore = false;
+        });
+      }
+    }
   }
 
-  Future<List<_CommentVm>> _fetchComments(int postId) async {
-    final response = await _apiService.getFeedPostComments(postId, size: 30);
-    final dynamic data = response.data;
-    final List<dynamic> list = (data is Map<String, dynamic>)
-        ? (data['content'] as List<dynamic>? ?? <dynamic>[])
-        : (data is List<dynamic> ? data : <dynamic>[]);
-
-    return list.map((dynamic item) {
-      final Map<String, dynamic> json = item as Map<String, dynamic>;
-      final String authorName = (json['authorName'] as String?)?.trim().isNotEmpty == true
-          ? json['authorName'] as String
-          : 'Thành viên';
-      final String content = (json['content'] as String?) ?? '';
-      return _CommentVm(text: '$authorName: $content');
-    }).toList();
+  List<FeedPostModel> get _visiblePosts {
+    List<FeedPostModel> list = _posts;
+    final String q = _searchQuery.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      list = list.where((FeedPostModel p) {
+        final String t = (p.title ?? '').toLowerCase();
+        final String c = _stripHtml(p.content).toLowerCase();
+        final String a = p.authorName.toLowerCase();
+        return t.contains(q) || c.contains(q) || a.contains(q);
+      }).toList();
+    }
+    switch (_quickFilter) {
+      case _FeedQuickFilter.unseen:
+        return list
+            .where((FeedPostModel p) => !_seenPostIds.contains(p.id))
+            .toList();
+      case _FeedQuickFilter.seen:
+        return list.where((FeedPostModel p) => _seenPostIds.contains(p.id)).toList();
+      case _FeedQuickFilter.hot:
+        return list.where(_isHotPost).toList();
+      case _FeedQuickFilter.all:
+        return list;
+    }
   }
 
-  void _openCommentSheet(int postIndex) {
-    final TextEditingController controller = TextEditingController();
-    final int postId = _posts[postIndex].id;
+  Future<void> _onDwellView(int postId) async {
+    if (_dwellDone.contains(postId)) return;
+    _dwellDone.add(postId);
+    await _persistSeenPost(postId);
+    final AuthProvider auth = context.read<AuthProvider>();
+    if (!auth.isLoggedIn) return;
+    try {
+      final Response<dynamic> res = await _api.markUserPostSeen(postId);
+      final dynamic data = res.data;
+      final bool isNew =
+          data is Map<String, dynamic> && data['new'] == true;
+      if (!isNew || !mounted) return;
+      final int idx = _posts.indexWhere((FeedPostModel e) => e.id == postId);
+      if (idx < 0) return;
+      setState(() {
+        final FeedPostModel p = _posts[idx];
+        _posts[idx] =
+            p.copyWithViewCount(p.viewCount + 1);
+      });
+    } catch (_) {
+      _dwellDone.remove(postId);
+    }
+  }
 
-    showModalBottomSheet<void>(
+  Future<void> _toggleLike(int indexInFullList) async {
+    final AuthProvider auth = context.read<AuthProvider>();
+    if (!auth.isLoggedIn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đăng nhập để thích bài viết.')),
+      );
+      return;
+    }
+    final FeedPostModel p = _posts[indexInFullList];
+    final bool prevLiked = p.isLiked;
+    final int prevCount = p.likeCount;
+    setState(() {
+      _posts[indexInFullList] = p.copyWithLike(
+        isLiked: !p.isLiked,
+        likeCount:
+            p.isLiked ? (p.likeCount > 0 ? p.likeCount - 1 : 0) : p.likeCount + 1,
+      );
+    });
+    try {
+      final Response<dynamic> res = await _api.toggleFeedPostLike(p.id);
+      final dynamic data = res.data;
+      bool liked = prevLiked;
+      int count = prevCount;
+      if (data is Map<String, dynamic>) {
+        if (data.containsKey('isLiked')) {
+          liked = data['isLiked'] == true;
+        } else if (data.containsKey('liked')) {
+          liked = data['liked'] == true;
+        }
+        final dynamic lc = data['likeCount'];
+        if (lc is int) count = lc;
+        if (lc is num) count = lc.toInt();
+      }
+      if (!mounted) return;
+      setState(() {
+        _posts[indexInFullList] =
+            _posts[indexInFullList].copyWithLike(isLiked: liked, likeCount: count);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _posts[indexInFullList] =
+            _posts[indexInFullList].copyWithLike(isLiked: prevLiked, likeCount: prevCount);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không cập nhật được thích.')),
+      );
+    }
+  }
+
+  Future<void> _flagPost(FeedPostModel post) async {
+    final AuthProvider auth = context.read<AuthProvider>();
+    if (!auth.isLoggedIn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đăng nhập để báo cáo bài viết.')),
+      );
+      return;
+    }
+    final TextEditingController reason = TextEditingController();
+    final bool? ok = await showDialog<bool>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (BuildContext sheetContext) {
-        return StatefulBuilder(
-          builder: (BuildContext context, StateSetter setSheetState) {
-            final List<_CommentVm> comments = _commentsByPostId[postId] ?? <_CommentVm>[];
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                top: 14,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 14,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Container(
-                    width: 46,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFD1D5DB),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Bình luận bài viết',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
-                      color: _text,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  FutureBuilder<List<_CommentVm>>(
-                    future: _commentsByPostId.containsKey(postId)
-                        ? null
-                        : _fetchComments(postId),
-                    builder: (BuildContext context, AsyncSnapshot<List<_CommentVm>> snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting &&
-                          !_commentsByPostId.containsKey(postId)) {
-                        return const SizedBox(
-                          height: 220,
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
-
-                      if (snapshot.hasData && !_commentsByPostId.containsKey(postId)) {
-                        _commentsByPostId[postId] = snapshot.data!;
-                      }
-
-                      final List<_CommentVm> merged = _commentsByPostId[postId] ?? comments;
-
-                      if (merged.isEmpty) {
-                        return const SizedBox(
-                          height: 120,
-                          child: Center(
-                            child: Text(
-                              'Chưa có bình luận nào',
-                              style: TextStyle(color: _muted, fontSize: 13),
-                            ),
-                          ),
-                        );
-                      }
-
-                      return SizedBox(
-                        height: 220,
-                        child: ListView.separated(
-                          itemCount: merged.length,
-                          itemBuilder: (_, int index) => Text(
-                            merged[index].text,
-                            style: const TextStyle(
-                              color: _text,
-                              fontSize: 13,
-                              height: 1.4,
-                            ),
-                          ),
-                          separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: TextField(
-                          controller: controller,
-                          minLines: 1,
-                          maxLines: 2,
-                          decoration: InputDecoration(
-                            hintText: 'Viết bình luận...',
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: () async {
-                          final String comment = controller.text.trim();
-                          if (comment.isEmpty) return;
-                          try {
-                            await _apiService.createFeedPostComment(postId, comment);
-                            final List<_CommentVm> latest = await _fetchComments(postId);
-                            if (!mounted) return;
-                            setState(() {
-                              _commentsByPostId[postId] = latest;
-                              _commentCounts[postIndex] = latest.length;
-                            });
-                            setSheetState(() {});
-                            controller.clear();
-                          } catch (_) {
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(this.context).showSnackBar(
-                              const SnackBar(content: Text('Gửi bình luận thất bại')),
-                            );
-                          }
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _primary,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(66, 44),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text(
-                          'Gửi',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          },
+      builder: (BuildContext c) {
+        return AlertDialog(
+          title: const Text('Báo cáo bài viết'),
+          content: TextField(
+            controller: reason,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: 'Lý do...',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Huỷ'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Gửi'),
+            ),
+          ],
         );
       },
-    ).whenComplete(controller.dispose);
+    );
+    final String r = reason.text.trim();
+    reason.dispose();
+    if (ok != true || !mounted) return;
+    if (r.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng nhập lý do.')),
+      );
+      return;
+    }
+    try {
+      await _api.submitFlag(postId: post.id, reason: r);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã gửi báo cáo. Cảm ơn bạn.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gửi báo cáo thất bại.')),
+        );
+      }
+    }
+  }
+
+  void _openComments(FeedPostModel post) {
+    showFeedCommentsSheet(
+      context,
+      postId: post.id,
+      isLocked: post.isLocked,
+      onCommentCountChanged: (int total) {
+        final int idx = _posts.indexWhere((FeedPostModel e) => e.id == post.id);
+        if (idx < 0 || !mounted) return;
+        setState(() {
+          _posts[idx].commentCount = total;
+          _posts[idx].replyCount = total;
+        });
+      },
+    );
+  }
+
+  int _indexInPostsList(FeedPostModel post) {
+    return _posts.indexWhere((FeedPostModel e) => e.id == post.id);
   }
 
   @override
   Widget build(BuildContext context) {
+    final AuthProvider auth = context.watch<AuthProvider>();
+    final List<FeedPostModel> visible = _visiblePosts;
+
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
         title: const Text(
-          "Feed Cộng đồng",
+          'Feed cộng đồng',
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
         centerTitle: false,
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: _text,
-        actions: [
+        actions: <Widget>[
           IconButton(
-            onPressed: () {},
+            tooltip: 'Đăng bài',
+            onPressed: auth.isLoggedIn
+                ? () => showCreateFeedPostSheet(
+                      context,
+                      onCreated: () => _load(refresh: true),
+                    )
+                : () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Đăng nhập để đăng bài.'),
+                      ),
+                    );
+                  },
             icon: const Icon(Icons.edit_square),
           ),
         ],
@@ -317,93 +491,147 @@ class _CommunityScreenState extends State<CommunityScreen> {
           Container(
             color: Colors.white,
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-            child: Column(
-              children: <Widget>[
-                Container(
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF3F4F6),
-                    borderRadius: BorderRadius.circular(14),
+            child: TextField(
+              controller: _search,
+              onChanged: (String v) => setState(() => _searchQuery = v),
+              decoration: InputDecoration(
+                hintText: 'Tìm bài viết, tác giả...',
+                prefixIcon: const Icon(Icons.search, color: _muted, size: 22),
+                filled: true,
+                fillColor: const Color(0xFFF3F4F6),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              ),
+            ),
+          ),
+          Container(
+            width: double.infinity,
+            color: Colors.white,
+            padding: const EdgeInsets.only(left: 12, right: 12, bottom: 10),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: <Widget>[
+                  _FilterPill(
+                    label: 'Tất cả (${_feedTotalElements > 0 ? _feedTotalElements : _posts.length})',
+                    selected: _selectedCategoryId == null &&
+                        _quickFilter == _FeedQuickFilter.all,
+                    selectedBg: const Color(0xFF18181B),
+                    selectedFg: Colors.white,
+                    onTap: () => _setCategoryAndReload(null),
                   ),
-                  child: const Row(
-                    children: <Widget>[
-                      SizedBox(width: 12),
-                      Icon(Icons.search, color: _muted, size: 20),
-                      SizedBox(width: 8),
-                      Text(
-                        'Tìm bài viết, chiến dịch...',
-                        style: TextStyle(
-                          color: _muted,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
+                  for (final ForumCategoryModel c in _forumCategories)
+                    _FilterPill(
+                      label: '${c.name} (${c.postCount})',
+                      selected: _selectedCategoryId == c.id &&
+                          _quickFilter == _FeedQuickFilter.all,
+                      selectedBg:
+                          _parseHexColor(c.color) ?? const Color(0xFF6366F1),
+                      selectedFg: Colors.white,
+                      onTap: () => _setCategoryAndReload(
+                        _selectedCategoryId == c.id ? null : c.id,
                       ),
-                    ],
+                    ),
+                  _FilterPill(
+                    label: 'Chưa xem',
+                    selected: _quickFilter == _FeedQuickFilter.unseen,
+                    selectedBg: const Color(0xFF10B981),
+                    selectedFg: Colors.white,
+                    onTap: () => _setQuickFilterAndReload(
+                      _quickFilter == _FeedQuickFilter.unseen
+                          ? _FeedQuickFilter.all
+                          : _FeedQuickFilter.unseen,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 34,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemBuilder: (BuildContext context, int index) {
-                      final bool isActive = _selectedFilter == index;
-                      return InkWell(
-                        borderRadius: BorderRadius.circular(999),
-                        onTap: () {
-                          setState(() => _selectedFilter = index);
-                        },
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          curve: Curves.easeOut,
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: isActive ? _primary : const Color(0xFFF3F4F6),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            _filters[index],
-                            style: TextStyle(
-                              color: isActive ? Colors.white : _text,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                    separatorBuilder: (BuildContext context, int index) =>
-                        const SizedBox(width: 8),
-                    itemCount: _filters.length,
+                  _FilterPill(
+                    label: 'Đã xem',
+                    selected: _quickFilter == _FeedQuickFilter.seen,
+                    selectedBg: const Color(0xFFE5E7EB),
+                    selectedFg: _text,
+                    onTap: () => _setQuickFilterAndReload(
+                      _quickFilter == _FeedQuickFilter.seen
+                          ? _FeedQuickFilter.all
+                          : _FeedQuickFilter.seen,
+                    ),
                   ),
-                ),
-              ],
+                  _FilterPill(
+                    label: 'Đang hot',
+                    selected: _quickFilter == _FeedQuickFilter.hot,
+                    selectedBg: const Color(0xFFEF4444),
+                    selectedFg: Colors.white,
+                    onTap: () => _setQuickFilterAndReload(
+                      _quickFilter == _FeedQuickFilter.hot
+                          ? _FeedQuickFilter.all
+                          : _FeedQuickFilter.hot,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           Expanded(
-            child: ListView.separated(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-              itemCount: _visibleIndexes.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (BuildContext context, int listIndex) {
-                final int postIndex = _visibleIndexes[listIndex];
-                final _FeedPost post = _posts[postIndex];
-                final bool isLiked = _likedStates[postIndex];
-                final int likeCount = post.likes + (isLiked ? 1 : 0);
-
-                return _PostCard(
-                  post: post,
-                  isLiked: isLiked,
-                  likeCount: likeCount,
-                  commentCount: _commentCounts[postIndex],
-                  onLikeToggle: () {
-                    setState(() => _likedStates[postIndex] = !isLiked);
-                  },
-                  onCommentTap: () => _openCommentSheet(postIndex),
-                );
-              },
+            child: RefreshIndicator(
+              onRefresh: () => _load(refresh: true),
+              child: _loading && _posts.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView.separated(
+                      controller: _scroll,
+                      physics: const AlwaysScrollableScrollPhysics(
+                        parent: BouncingScrollPhysics(),
+                      ),
+                      padding:
+                          const EdgeInsets.fromLTRB(12, 12, 12, 100),
+                      itemCount: visible.length + (_loadingMore ? 1 : 0),
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (BuildContext c, int i) {
+                        if (i >= visible.length) {
+                          return const Padding(
+                            padding: EdgeInsets.all(20),
+                            child:
+                                Center(child: CircularProgressIndicator()),
+                          );
+                        }
+                        final FeedPostModel post = visible[i];
+                        final int fullIdx = _indexInPostsList(post);
+                        final List<String> images =
+                            _imageUrlsByPostId[post.id] ?? <String>[];
+                        return FeedDwellTracker(
+                          visibilityKey: ValueKey<String>('dwell-${post.id}'),
+                          dwell: const Duration(seconds: 3),
+                          onDwell: () => _onDwellView(post.id),
+                          child: _FeedPostCard(
+                            post: post,
+                            imageUrls: images,
+                            timeLabel: _timeAgo(post.updatedAt ?? post.createdAt),
+                            textPreview: _stripHtml(post.content),
+                            categoryLabel: _categoryLabel(post),
+                            categoryColor: _categoryColorForPost(post),
+                            showHotBadge: _isHotPost(post),
+                            onOpen: () async {
+                              await Navigator.push<void>(
+                                context,
+                                MaterialPageRoute<void>(
+                                  builder: (BuildContext ctx) =>
+                                      FeedPostDetailScreen(postId: post.id),
+                                ),
+                              );
+                              if (mounted) {
+                                await _load(refresh: true);
+                              }
+                            },
+                            onLike: fullIdx >= 0
+                                ? () => _toggleLike(fullIdx)
+                                : null,
+                            onComment: () => _openComments(post),
+                            onFlag: () => _flagPost(post),
+                          ),
+                        );
+                      },
+                    ),
             ),
           ),
         ],
@@ -412,69 +640,90 @@ class _CommunityScreenState extends State<CommunityScreen> {
   }
 }
 
-class _FeedPost {
-  const _FeedPost({
-    required this.id,
-    required this.author,
-    required this.role,
-    required this.type,
-    required this.timeAgo,
-    required this.title,
-    required this.caption,
-    required this.imageUrl,
-    required this.likes,
-    required this.comments,
-    this.campaignTitle,
-    this.campaignProgress,
+class _FilterPill extends StatelessWidget {
+  const _FilterPill({
+    required this.label,
+    required this.selected,
+    required this.selectedBg,
+    required this.selectedFg,
+    required this.onTap,
   });
 
-  final int id;
-  final String author;
-  final String role;
-  final String type;
-  final String timeAgo;
-  final String? title;
-  final String caption;
-  final String imageUrl;
-  final int likes;
-  final int comments;
-  final String? campaignTitle;
-  final double? campaignProgress;
+  final String label;
+  final bool selected;
+  final Color selectedBg;
+  final Color selectedFg;
+  final VoidCallback onTap;
+
+  static const Color _border = Color(0xFFE5E7EB);
+  static const Color _muted = Color(0xFF6B7280);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? selectedBg : Colors.white,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: selected ? Colors.transparent : _border,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              color: selected ? selectedFg : _muted,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _CommentVm {
-  const _CommentVm({required this.text});
-
-  final String text;
-}
-
-class _PostCard extends StatelessWidget {
-  const _PostCard({
+class _FeedPostCard extends StatelessWidget {
+  const _FeedPostCard({
     required this.post,
-    required this.isLiked,
-    required this.likeCount,
-    required this.commentCount,
-    required this.onLikeToggle,
-    required this.onCommentTap,
+    required this.imageUrls,
+    required this.timeLabel,
+    required this.textPreview,
+    this.categoryLabel,
+    this.categoryColor,
+    this.showHotBadge = false,
+    required this.onOpen,
+    this.onLike,
+    required this.onComment,
+    required this.onFlag,
   });
 
-  final _FeedPost post;
-  final bool isLiked;
-  final int likeCount;
-  final int commentCount;
-  final VoidCallback onLikeToggle;
-  final VoidCallback onCommentTap;
+  final FeedPostModel post;
+  final List<String> imageUrls;
+  final String timeLabel;
+  final String textPreview;
+  final String? categoryLabel;
+  final Color? categoryColor;
+  final bool showHotBadge;
+  final VoidCallback onOpen;
+  final VoidCallback? onLike;
+  final VoidCallback onComment;
+  final VoidCallback onFlag;
 
   static const Color _primary = Color(0xFFF84D43);
   static const Color _text = Color(0xFF111827);
   static const Color _muted = Color(0xFF6B7280);
-  static const Color _card = Colors.white;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final Widget inner = Container(
       decoration: BoxDecoration(
-        color: _card,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
@@ -482,130 +731,275 @@ class _PostCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+            padding: const EdgeInsets.fromLTRB(14, 14, 8, 10),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                const CircleAvatar(
+                CircleAvatar(
                   radius: 19,
-                  backgroundColor: Color(0xFFF3F4F6),
-                  child: Icon(Icons.person_outline, color: _muted),
+                  backgroundColor: const Color(0xFFF3F4F6),
+                  backgroundImage: post.authorAvatar != null &&
+                          post.authorAvatar!.isNotEmpty
+                      ? NetworkImage(post.authorAvatar!)
+                      : null,
+                  child: post.authorAvatar == null ||
+                          post.authorAvatar!.isEmpty
+                      ? Text(
+                          post.authorName.isNotEmpty
+                              ? post.authorName[0].toUpperCase()
+                              : '?',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: _muted,
+                          ),
+                        )
+                      : null,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Text(
-                        post.author,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                          color: _text,
-                        ),
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              post.authorName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                                color: _text,
+                              ),
+                            ),
+                          ),
+                          if (post.isPinned)
+                            Container(
+                              margin: const EdgeInsets.only(left: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF7ED),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Text(
+                                'Ghim',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFFC2410C),
+                                ),
+                              ),
+                            ),
+                          if (showHotBadge)
+                            Container(
+                              margin: const EdgeInsets.only(left: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF7ED),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  Icon(
+                                    Icons.local_fire_department,
+                                    size: 14,
+                                    color: Color(0xFFC2410C),
+                                  ),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Hot',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFFC2410C),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '${post.role} • ${post.timeAgo}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        timeLabel,
                         style: const TextStyle(
                           fontSize: 12,
                           color: _muted,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
+                      if (categoryLabel != null &&
+                          categoryLabel!.trim().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: (categoryColor ?? _muted)
+                                  .withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              categoryLabel!.trim(),
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                color: categoryColor ?? _muted,
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (post.targetType == 'CAMPAIGN' &&
+                          (post.targetName ?? '').isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'Chiến dịch: ${post.targetName}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF166534),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
-                _TypeBadge(type: post.type),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_horiz, color: _muted),
+                  onSelected: (String value) {
+                    if (value == 'flag') onFlag();
+                  },
+                  itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
+                    const PopupMenuItem<String>(
+                      value: 'flag',
+                      child: Text('Báo cáo bài viết'),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
-          if (post.title != null) ...<Widget>[
+          if ((post.title ?? '').trim().isNotEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
               child: Text(
-                post.title!,
+                post.title!.trim(),
                 style: const TextStyle(
-                  color: _text,
                   fontWeight: FontWeight.w800,
                   fontSize: 16,
+                  color: _text,
                 ),
               ),
             ),
-          ],
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-            child: Text(
-              post.caption,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: _text,
-                fontSize: 14,
-                height: 1.45,
+          if (textPreview.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: Text(
+                textPreview,
+                maxLines: 5,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.45,
+                  color: _text,
+                ),
               ),
             ),
-          ),
-          RepaintBoundary(
-            child: Padding(
+          if (imageUrls.isNotEmpty)
+            Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(16),
-                child: SizedBox(
-                  height: 170,
-                  width: double.infinity,
+                child: AspectRatio(
+                  aspectRatio: 4 / 3,
                   child: Image.network(
-                    post.imageUrl,
+                    imageUrls.first,
                     fit: BoxFit.cover,
-                    filterQuality: FilterQuality.low,
-                    cacheWidth: 1024,
                     errorBuilder: (_, __, ___) => Container(
                       color: const Color(0xFFE5E7EB),
                       alignment: Alignment.center,
-                      child: const Icon(
-                        Icons.image_not_supported_outlined,
-                        color: Color(0xFF9CA3AF),
-                        size: 30,
-                      ),
+                      child: const Icon(Icons.broken_image_outlined,
+                          color: _muted),
                     ),
                   ),
                 ),
               ),
             ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+            child: Row(
+              children: <Widget>[
+                Icon(
+                  Icons.remove_red_eye_outlined,
+                  size: 16,
+                  color: _muted,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '${post.viewCount}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: _muted,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                if (post.isLocked)
+                  const Icon(Icons.lock_outline, size: 16, color: _muted),
+              ],
+            ),
           ),
-          if (post.campaignTitle != null && post.campaignProgress != null) ...<Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-              child: Text(
-                post.campaignTitle!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: _text,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
+            child: Row(
+              children: <Widget>[
+                IconButton(
+                  onPressed: onLike,
+                  icon: Icon(
+                    post.isLiked ? Icons.favorite : Icons.favorite_border,
+                    color: post.isLiked ? _primary : _text,
+                  ),
                 ),
+                IconButton(
+                  onPressed: onComment,
+                  icon: const Icon(Icons.mode_comment_outlined, color: _text),
+                ),
+                const Spacer(),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
+            child: Text(
+              '${post.likeCount} lượt thích',
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+                color: _text,
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(999),
-                child: LinearProgressIndicator(
-                  minHeight: 7,
-                  value: post.campaignProgress,
-                  backgroundColor: const Color(0xFFE5E7EB),
-                  color: const Color(0xFF1A685B),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 6, 14, 2),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onComment,
               child: Text(
-                'Đạt ${(post.campaignProgress! * 100).toInt()}% mục tiêu',
+                'Xem ${post.commentCount} bình luận',
                 style: const TextStyle(
                   color: _muted,
                   fontSize: 12,
@@ -613,106 +1007,14 @@ class _PostCard extends StatelessWidget {
                 ),
               ),
             ),
-          ],
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
-            child: Row(
-              children: <Widget>[
-                IconButton(
-                  onPressed: onLikeToggle,
-                  icon: Icon(
-                    isLiked ? Icons.favorite : Icons.favorite_border,
-                    color: isLiked ? _primary : _text,
-                  ),
-                ),
-                IconButton(
-                  onPressed: onCommentTap,
-                  icon: const Icon(Icons.mode_comment_outlined, color: _text),
-                ),
-                IconButton(
-                  onPressed: () {},
-                  icon: const Icon(Icons.send_outlined, color: _text),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: () {},
-                  icon: const Icon(Icons.bookmark_border, color: _text),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-            child: Text(
-              '$likeCount lượt thích',
-              style: const TextStyle(
-                color: _text,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-            child: Text(
-              'Xem $commentCount bình luận',
-              style: const TextStyle(
-                color: _muted,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
           ),
         ],
       ),
     );
-  }
-}
-
-class _TypeBadge extends StatelessWidget {
-  const _TypeBadge({required this.type});
-
-  final String type;
-
-  @override
-  Widget build(BuildContext context) {
-    final ({String label, Color bg, Color fg}) config = switch (type) {
-      'UPDATE' => (
-          label: 'Update',
-          bg: const Color(0xFFECFDF5),
-          fg: const Color(0xFF047857),
-        ),
-      'ANNOUNCEMENT' => (
-          label: 'Thông báo',
-          bg: const Color(0xFFFFF7ED),
-          fg: const Color(0xFFC2410C),
-        ),
-      'NEWS' => (
-          label: 'Tin tức',
-          bg: const Color(0xFFEFF6FF),
-          fg: const Color(0xFF1D4ED8),
-        ),
-      _ => (
-          label: type,
-          bg: const Color(0xFFF3F4F6),
-          fg: const Color(0xFF4B5563),
-        ),
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: config.bg,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        config.label,
-        style: TextStyle(
-          color: config.fg,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
+    return InkWell(
+      onTap: onOpen,
+      borderRadius: BorderRadius.circular(20),
+      child: inner,
     );
   }
 }

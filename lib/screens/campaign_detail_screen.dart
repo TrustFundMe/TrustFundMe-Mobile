@@ -6,6 +6,7 @@ import '../core/models/campaign_model.dart';
 import '../core/models/payment_models.dart';
 import 'donation_screen.dart';
 import 'chat_screen.dart';
+import '../widgets/feed/create_feed_post_sheet.dart';
 
 /// Màn chi tiết chiến dịch: số tiền đã quyên / mục tiêu / % và người ủng hộ gần đây (tương tự web campaigns-details).
 class CampaignDetailScreen extends StatefulWidget {
@@ -158,6 +159,20 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
             onPressed: () => Navigator.of(context).pop(_refreshCampaignsList),
           ),
           actions: [
+            IconButton(
+              tooltip: 'Đăng bài về chiến dịch',
+              icon: const Icon(Icons.post_add_outlined, color: webGreen),
+              onPressed: () {
+                showCreateFeedPostSheet(
+                  context,
+                  linkedCampaignId: widget.campaign.id,
+                  linkedCampaignTitle: widget.campaign.title,
+                  onCreated: () {
+                    if (mounted) setState(() {});
+                  },
+                );
+              },
+            ),
             IconButton(
               icon: const Icon(Icons.chat_bubble_outline, color: webPrimary),
               onPressed: () {
