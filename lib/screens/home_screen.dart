@@ -131,24 +131,20 @@ class HomeScreen extends StatelessWidget {
                     style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: dark, height: 1.1),
                     children: isHeroMobile
                         ? [
-                            const TextSpan(text: "Minh Bạch\n"),
+                            const TextSpan(text: "Góp Một\nPhần,\n"),
                             TextSpan(
-                              text: "Trong\n",
+                              text: "Thay Ngàn\n",
                               style: TextStyle(color: primary),
                             ),
-                            TextSpan(
-                              text: "Từng\n",
-                              style: TextStyle(color: primary),
-                            ),
-                            const TextSpan(text: "Khoản\nQuyên Góp"),
+                            const TextSpan(text: "Cuộc Đời"),
                           ]
                         : [
-                            const TextSpan(text: "Minh Bạch "),
+                            const TextSpan(text: "Góp Một Phần,\n"),
                             TextSpan(
-                              text: "Trong\nTừng",
+                              text: "Thay Ngàn ",
                               style: TextStyle(color: primary),
                             ),
-                            const TextSpan(text: " Khoản\nQuyên Góp"),
+                            const TextSpan(text: "Cuộc Đời"),
                           ],
                   ),
                 ).animate().fadeIn(),

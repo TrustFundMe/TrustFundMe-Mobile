@@ -393,11 +393,31 @@ class ApiService {
     );
   }
 
+  Future<Response<dynamic>> getExpendituresByCampaign(
+    int campaignId,
+  ) async {
+    return _dio.get(
+      '${ApiConfig.campaignUrl}/expenditures/campaign/$campaignId',
+    );
+  }
+
   Future<Response<dynamic>> getExpenditureItemsByCampaign(
     int campaignId,
   ) async {
     return _dio.get(
       '${ApiConfig.campaignUrl}/expenditures/campaign/$campaignId/items',
+    );
+  }
+
+  Future<Response<dynamic>> requestWithdrawal(int expenditureId) async {
+    return _dio.post(
+      '${ApiConfig.campaignUrl}/expenditures/$expenditureId/request-withdrawal',
+    );
+  }
+
+  Future<Response<dynamic>> updateEvidenceStatus(int expenditureId, String status) async {
+    return _dio.patch(
+      '${ApiConfig.campaignUrl}/expenditures/$expenditureId/evidence-status?status=$status',
     );
   }
 

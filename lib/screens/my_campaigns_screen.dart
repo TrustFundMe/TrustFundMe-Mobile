@@ -10,6 +10,7 @@ import '../core/models/campaign_model.dart';
 import 'package:intl/intl.dart';
 import 'feature_hub_placeholder_screen.dart';
 import 'chat_screen.dart';
+import 'campaign_expenditure_screen.dart';
 
 class MyCampaignsScreen extends StatefulWidget {
   const MyCampaignsScreen({super.key});
@@ -258,10 +259,10 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) => const FeatureHubPlaceholderScreen(
-                                      title: "Chiến dịch chi tiêu",
-                                      description: "Tính năng quản lý chi tiêu và giải ngân đang được phát triển cho bản mobile.",
-                                      icon: Icons.account_balance_wallet_outlined,
+                                    builder: (context) => CampaignExpenditureScreen(
+                                      campaignId: campaign['id'],
+                                      campaignTitle: title,
+                                      campaignType: campaign['type'] ?? 'ITEMIZED',
                                     ),
                                   ),
                                 );
