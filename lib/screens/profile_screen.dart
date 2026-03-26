@@ -9,6 +9,7 @@ import 'feature_hub_placeholder_screen.dart';
 import 'login_screen.dart';
 import 'my_campaigns_screen.dart';
 import 'chat_list_screen.dart';
+import 'appointment_schedule_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -439,11 +440,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _buildQuickAction(
                     icon: Icons.calendar_month_outlined,
                     title: "Lịch hẹn",
-                    onTap: () => _openFeaturePlaceholder(
-                      title: "Lịch hẹn",
-                      description: "Lịch hẹn tư vấn và theo dõi chiến dịch sẽ có trong bản mobile kế tiếp.",
-                      icon: Icons.calendar_month_outlined,
-                    ),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const AppointmentScheduleScreen()),
+                      );
+                    },
                   ),
                   _buildQuickAction(
                     icon: Icons.flag_outlined,

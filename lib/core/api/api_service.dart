@@ -549,4 +549,16 @@ class ApiService {
   Future<Response<dynamic>> getUserById(int userId) async {
     return _dio.get('${ApiConfig.identityUrl}/users/$userId');
   }
+
+  // --- Appointment APIs ---
+  Future<Response<dynamic>> getAppointmentsByDonor(int donorId) async {
+    return _dio.get('${ApiConfig.appointmentUrl}/donor/$donorId');
+  }
+
+  Future<Response<dynamic>> updateAppointmentStatus(int appointmentId, String status) async {
+    return _dio.patch(
+      '${ApiConfig.appointmentUrl}/$appointmentId/status',
+      queryParameters: {'status': status},
+    );
+  }
 }
