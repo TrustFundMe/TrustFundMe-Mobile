@@ -18,6 +18,10 @@ String feedCommentTimeLabel(String raw) {
 
 /// Shared comment list + composer (nested replies, likes, edit/delete for owner).
 /// Used by the bottom sheet and the full post detail screen (danbox parity).
+///
+/// When [mergedScrollWithComposer] is true, [prependInScroll] is placed above the
+/// comment list inside one scroll view; only the composer row stays pinned at the
+/// bottom (post detail UX).
 class FeedCommentsPanel extends StatefulWidget {
   const FeedCommentsPanel({
     super.key,
@@ -26,6 +30,8 @@ class FeedCommentsPanel extends StatefulWidget {
     required this.onTotalChanged,
     this.currentUserId,
     this.showSheetChrome = false,
+    this.mergedScrollWithComposer = false,
+    this.prependInScroll,
   });
 
   final int postId;
@@ -34,6 +40,10 @@ class FeedCommentsPanel extends StatefulWidget {
   final void Function(int total) onTotalChanged;
   /// Top drag handle + "Bình luận" row (bottom sheet).
   final bool showSheetChrome;
+  /// Single outer scroll: prepend (e.g. post card) + comments scroll together;
+  /// composer fixed below.
+  final bool mergedScrollWithComposer;
+  final Widget? prependInScroll;
 
   @override
   State<FeedCommentsPanel> createState() => _FeedCommentsPanelState();
@@ -336,10 +346,281 @@ class _FeedCommentsPanelState extends State<FeedCommentsPanel> {
     }
   }
 
+  Widget _buildCommentsListBlock(
+    int total, {
+    required bool shrinkWrapInParentScroll,
+  }) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 32),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_error != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: Text(_error!, style: const TextStyle(color: _muted)),
+        ),
+      );
+    }
+    if (_roots.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: Text('Chưa có bình luận', style: TextStyle(color: _muted)),
+        ),
+      );
+    }
+    return ListView.builder(
+      shrinkWrap: shrinkWrapInParentScroll,
+      physics: shrinkWrapInParentScroll
+          ? const NeverScrollableScrollPhysics()
+          : const AlwaysScrollableScrollPhysics(),
+      itemCount: _roots.length + 1,
+      itemBuilder: (BuildContext c, int i) {
+        if (i >= _roots.length) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(8, 20, 8, 12),
+            child: Center(
+              child: Text(
+                'Đã hiển thị tất cả bình luận.\n'
+                'Không còn bình luận nào phía dưới.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _muted.withOpacity(0.9),
+                  height: 1.35,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            _CommentThread(
+              comment: _roots[i],
+              depth: 0,
+              currentUserId: widget.currentUserId,
+              editingCommentId: _editingCommentId,
+              editController: _editDraftController,
+              savingEdit: _savingEdit,
+              timeLabel: feedCommentTimeLabel(
+                _roots[i].updatedAt ?? _roots[i].createdAt,
+              ),
+              onReply: (int id) {
+                setState(() => _replyParentId = id);
+              },
+              onToggleLike: _toggleCommentLike,
+              onBeginEdit: _beginInlineEdit,
+              onCancelEdit: _cancelInlineEdit,
+              onSaveEdit: _saveInlineEdit,
+              onDelete: _deleteComment,
+            ),
+            if (i < _roots.length - 1) const Divider(height: 24),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final int total = _countComments(_roots);
     final double padBottom = MediaQuery.of(context).viewInsets.bottom;
+
+    if (widget.mergedScrollWithComposer) {
+      return Padding(
+        padding: EdgeInsets.only(
+          bottom: padBottom + (widget.showSheetChrome ? 16 : 0),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    if (widget.prependInScroll != null) widget.prependInScroll!,
+                    if (widget.showSheetChrome) ...<Widget>[
+                      Center(
+                        child: Container(
+                          width: 46,
+                          height: 4,
+                          margin: const EdgeInsets.only(top: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD1D5DB),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: <Widget>[
+                          const Text(
+                            'Bình luận',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 17,
+                              color: _text,
+                            ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            onPressed: _loading ? null : _load,
+                            icon: const Icon(Icons.refresh, size: 22),
+                            color: _muted,
+                          ),
+                        ],
+                      ),
+                    ] else ...<Widget>[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                        child: Text(
+                          'BÌNH LUẬN ($total)',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                            letterSpacing: 0.06,
+                            color: _text,
+                          ),
+                        ),
+                      ),
+                    ],
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: _buildCommentsListBlock(
+                        total,
+                        shrinkWrapInParentScroll: true,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  if (widget.isLocked)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Bài viết đang khóa bình luận.',
+                        style: TextStyle(color: _muted, fontSize: 13),
+                      ),
+                    ),
+                  if (!widget.isLocked && _replyParentId != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Material(
+                        color: const Color(0xFFF3F4F6),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            children: <Widget>[
+                              Icon(
+                                Icons.reply_rounded,
+                                size: 20,
+                                color: _muted.withOpacity(0.85),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Đang trả lời bình luận',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: _text.withOpacity(0.88),
+                                  ),
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: () =>
+                                    setState(() => _replyParentId = null),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: _text,
+                                  visualDensity: VisualDensity.compact,
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 8),
+                                ),
+                                icon: const Icon(Icons.close, size: 18),
+                                label: const Text('Hủy trả lời'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: <Widget>[
+                      Expanded(
+                        child: TextField(
+                          controller: _composer,
+                          minLines: 1,
+                          maxLines: 4,
+                          enabled: !widget.isLocked && !_sending,
+                          decoration: InputDecoration(
+                            hintText: widget.isLocked
+                                ? 'Đã khóa bình luận'
+                                : (_replyParentId != null
+                                    ? 'Phản hồi...'
+                                    : 'Thêm bình luận...'),
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onSubmitted: (_) => _send(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed:
+                            widget.isLocked || _sending ? null : _send,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _primary,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(72, 48),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: _sending
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('Đăng'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Padding(
       padding: EdgeInsets.only(bottom: padBottom + (widget.showSheetChrome ? 16 : 0)),
@@ -392,74 +673,10 @@ class _FeedCommentsPanelState extends State<FeedCommentsPanel> {
             ),
           ],
           Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                    ? Center(child: Text(_error!, style: const TextStyle(color: _muted)))
-                    : _roots.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'Chưa có bình luận',
-                              style: TextStyle(color: _muted),
-                            ),
-                          )
-                        : ListView.builder(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            itemCount:
-                                _roots.length + (_roots.isNotEmpty ? 1 : 0),
-                            itemBuilder: (BuildContext c, int i) {
-                              if (i >= _roots.length) {
-                                return Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    8,
-                                    20,
-                                    8,
-                                    12,
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      'Đã hiển thị tất cả bình luận.\n'
-                                      'Không còn bình luận nào phía dưới.',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: _muted.withOpacity(0.9),
-                                        height: 1.35,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: <Widget>[
-                                  _CommentThread(
-                                    comment: _roots[i],
-                                    depth: 0,
-                                    currentUserId: widget.currentUserId,
-                                    editingCommentId: _editingCommentId,
-                                    editController: _editDraftController,
-                                    savingEdit: _savingEdit,
-                                    timeLabel: feedCommentTimeLabel(
-                                      _roots[i].updatedAt ??
-                                          _roots[i].createdAt,
-                                    ),
-                                    onReply: (int id) {
-                                      setState(() => _replyParentId = id);
-                                    },
-                                    onToggleLike: _toggleCommentLike,
-                                    onBeginEdit: _beginInlineEdit,
-                                    onCancelEdit: _cancelInlineEdit,
-                                    onSaveEdit: _saveInlineEdit,
-                                    onDelete: _deleteComment,
-                                  ),
-                                  if (i < _roots.length - 1)
-                                    const Divider(height: 24),
-                                ],
-                              );
-                            },
-                          ),
+            child: _buildCommentsListBlock(
+              total,
+              shrinkWrapInParentScroll: false,
+            ),
           ),
           const SizedBox(height: 10),
           if (widget.isLocked)

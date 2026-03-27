@@ -13,6 +13,7 @@ import 'feed_post_detail_screen.dart';
 import '../widgets/flags/flag_reason_sheet.dart';
 import '../core/utils/flag_error_resolver.dart';
 import '../core/utils/flag_duplicate_guard.dart';
+import '../core/utils/feed_post_flag_guard.dart';
 
 class CampaignPostsScreen extends StatefulWidget {
   const CampaignPostsScreen({
@@ -228,6 +229,15 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
       );
       return;
     }
+    if (!userCanFlagFeedPost(post, auth.user?.id)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Color(0xFFDC2626),
+          content: Text('Bạn không thể tố cáo bài viết của chính mình.'),
+        ),
+      );
+      return;
+    }
     final String? r = await showFeedPostFlagReasonBottomSheet(context);
     if (r == null || r.isEmpty || !mounted) return;
     final bool duplicated = await hasSubmittedFlag(_api, postId: post.id);
@@ -374,10 +384,11 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
                                           child: Text('Xóa'),
                                         ),
                                       ],
-                                      const PopupMenuItem<String>(
-                                        value: 'flag',
-                                        child: Text('Báo cáo bài viết'),
-                                      ),
+                                      if (!isOwner)
+                                        const PopupMenuItem<String>(
+                                          value: 'flag',
+                                          child: Text('Báo cáo bài viết'),
+                                        ),
                                     ],
                                   ),
                                 ],

@@ -12,9 +12,11 @@ import '../widgets/feed/create_feed_post_sheet.dart';
 import '../widgets/feed/feed_comments_sheet.dart';
 import '../widgets/feed/feed_dwell_tracker.dart';
 import '../widgets/feed/feed_post_attachments.dart';
+import '../widgets/feed/feed_post_target_nav.dart';
 import '../widgets/flags/flag_reason_sheet.dart';
 import '../core/utils/flag_error_resolver.dart';
 import '../core/utils/flag_duplicate_guard.dart';
+import '../core/utils/feed_post_flag_guard.dart';
 
 enum _FeedQuickFilter { all, unseen, seen, hot }
 
@@ -323,6 +325,15 @@ class _CommunityScreenState extends State<CommunityScreen> {
       );
       return;
     }
+    if (!userCanFlagFeedPost(post, auth.user?.id)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Color(0xFFDC2626),
+          content: Text('Bạn không thể tố cáo bài viết của chính mình.'),
+        ),
+      );
+      return;
+    }
     final String? r = await showFeedPostFlagReasonBottomSheet(context);
     if (r == null || r.isEmpty || !mounted) return;
     final bool duplicated = await hasSubmittedFlag(_api, postId: post.id);
@@ -564,6 +575,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           dwell: const Duration(seconds: 3),
                           onDwell: () => _onDwellView(post.id),
                           child: _FeedPostCard(
+                            api: _api,
                             post: post,
                             media: media,
                             timeLabel: _timeAgo(post.updatedAt ?? post.createdAt),
@@ -588,7 +600,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                 ? () => _toggleLike(fullIdx)
                                 : null,
                             onComment: () => _openComments(post),
-                            onFlag: () => _flagPost(post),
+                            onFlag: userCanFlagFeedPost(post, uid)
+                                ? () => _flagPost(post)
+                                : null,
                             onEdit: uid != null && post.authorId == uid
                                 ? () => _editPost(post)
                                 : null,
@@ -657,6 +671,7 @@ class _FilterPill extends StatelessWidget {
 
 class _FeedPostCard extends StatelessWidget {
   const _FeedPostCard({
+    required this.api,
     required this.post,
     required this.media,
     required this.timeLabel,
@@ -668,11 +683,12 @@ class _FeedPostCard extends StatelessWidget {
     required this.onOpen,
     this.onLike,
     required this.onComment,
-    required this.onFlag,
+    this.onFlag,
     this.onEdit,
     this.onDelete,
   });
 
+  final ApiService api;
   final FeedPostModel post;
   final List<FeedPostMediaItem> media;
   final String timeLabel;
@@ -684,7 +700,7 @@ class _FeedPostCard extends StatelessWidget {
   final VoidCallback onOpen;
   final VoidCallback? onLike;
   final VoidCallback onComment;
-  final VoidCallback onFlag;
+  final VoidCallback? onFlag;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
@@ -833,21 +849,7 @@ class _FeedPostCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                      if (post.targetType == 'CAMPAIGN' &&
-                          (post.targetName ?? '').isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text(
-                            'Chiến dịch: ${post.targetName}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF166534),
-                            ),
-                          ),
-                        ),
+                      FeedPostTargetPill(api: api, post: post),
                     ],
                   ),
                 ),
@@ -855,7 +857,7 @@ class _FeedPostCard extends StatelessWidget {
                   icon: const Icon(Icons.more_horiz, color: _muted),
                   onSelected: (String value) {
                     if (value == 'flag') {
-                      onFlag();
+                      onFlag?.call();
                     } else if (value == 'edit') {
                       onEdit?.call();
                     } else if (value == 'delete') {
@@ -876,10 +878,11 @@ class _FeedPostCard extends StatelessWidget {
                           child: Text('Xóa'),
                         ),
                       ],
-                      const PopupMenuItem<String>(
-                        value: 'flag',
-                        child: Text('Báo cáo bài viết'),
-                      ),
+                      if (onFlag != null)
+                        const PopupMenuItem<String>(
+                          value: 'flag',
+                          child: Text('Báo cáo bài viết'),
+                        ),
                     ];
                   },
                 ),

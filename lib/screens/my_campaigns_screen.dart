@@ -8,7 +8,6 @@ import 'edit_campaign_screen.dart';
 import 'campaign_detail_screen.dart';
 import '../core/models/campaign_model.dart';
 import 'package:intl/intl.dart';
-import 'feature_hub_placeholder_screen.dart';
 import 'chat_screen.dart';
 import 'campaign_expenditure_screen.dart';
 
@@ -48,31 +47,47 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
     }
   }
 
-  Future<void> _fetchMyCampaigns() async {
+  /// [reset]: true = load lại từ trang 0 (sau sửa/tạo/kéo refresh). Bắt buộc nếu không
+  /// [_currentPage] sẽ tiếp tục từ lần cuộn trước và API trả về trang rỗng → list "mất" hết.
+  Future<void> _fetchMyCampaigns({bool reset = false}) async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final user = authProvider.user;
     if (user == null) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      if (reset) {
+        _currentPage = 0;
+        _hasMore = true;
+        _campaigns = <dynamic>[];
+      }
+    });
+
+    final int requestedPage = reset ? 0 : _currentPage;
 
     try {
-      final response = await _apiService.getUserCampaigns(user.id, page: _currentPage, size: 10);
+      final response = await _apiService.getUserCampaigns(
+        user.id,
+        page: requestedPage,
+        size: 10,
+      );
       if (response.statusCode == 200) {
         final List<dynamic> newItems = response.data['content'] ?? [];
+        if (!mounted) return;
         setState(() {
-          if (_currentPage == 0) {
-            _campaigns = newItems;
+          if (reset || requestedPage == 0) {
+            _campaigns = List<dynamic>.from(newItems);
           } else {
             _campaigns.addAll(newItems);
           }
-          _currentPage++;
+          _currentPage = requestedPage + 1;
           _hasMore = newItems.length == 10;
         });
       }
     } catch (e) {
       debugPrint("Error fetching campaigns: $e");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -105,11 +120,7 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          setState(() {
-            _currentPage = 0;
-            _hasMore = true;
-          });
-          await _fetchMyCampaigns();
+          await _fetchMyCampaigns(reset: true);
         },
         child: _campaigns.isEmpty && !_isLoading
             ? _buildEmptyState()
@@ -134,7 +145,10 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => const CreateCampaignScreen()),
-          ).then((_) => _fetchMyCampaigns()); // Refresh after creation
+          ).then((_) {
+            if (!mounted) return;
+            _fetchMyCampaigns(reset: true);
+          });
         },
         backgroundColor: const Color(0xFFF84D43),
         icon: const Icon(Icons.add, color: Colors.white),
@@ -320,11 +334,8 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
                                     ),
                                   ),
                                 ).then((_) {
-                                  setState(() {
-                                    _currentPage = 0;
-                                    _campaigns = [];
-                                  });
-                                  _fetchMyCampaigns();
+                                  if (!mounted) return;
+                                  _fetchMyCampaigns(reset: true);
                                 });
                               },
                               icon: Icons.edit_outlined,

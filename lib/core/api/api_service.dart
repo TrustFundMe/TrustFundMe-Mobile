@@ -438,6 +438,12 @@ class ApiService {
     );
   }
 
+  Future<Response<dynamic>> getExpenditureById(int expenditureId) async {
+    return _dio.get(
+      '${ApiConfig.campaignUrl}/expenditures/$expenditureId',
+    );
+  }
+
   Future<Response<dynamic>> getExpenditureItemsByCampaign(
     int campaignId,
   ) async {

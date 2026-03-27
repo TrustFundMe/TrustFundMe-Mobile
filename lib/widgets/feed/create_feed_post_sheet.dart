@@ -131,6 +131,9 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
         _campaignLabel = (p.targetName ?? '').trim().isNotEmpty
             ? p.targetName!.trim()
             : 'Chiến dịch #${p.targetId}';
+        _campaignOptions = <MapEntry<int, String>>[
+          MapEntry<int, String>(p.targetId!, _campaignLabel),
+        ];
       } else if (tt == 'EXPENDITURE' && p.targetId != null) {
         _targetKind = _TargetKind.expenditure;
         _expenditureTargetId = p.targetId;
@@ -141,12 +144,30 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
         _targetKind = _TargetKind.none;
       }
       _loadExistingMedia();
-    }
-    if (_targetKind == _TargetKind.expenditure && _effectiveCampaignId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _preloadEditTargetOptions();
+      });
+    } else if (_targetKind == _TargetKind.expenditure &&
+        _effectiveCampaignId != null) {
       _loadExpenditureOptions(_effectiveCampaignId!);
     }
     if (_shouldUseDraft) {
       _restoreDraftIfAny();
+    }
+  }
+
+  /// Edit sheet: tải danh sách chiến dịch (và đợt chi) ngay khi mở — trước đây chỉ tải khi đổi chip.
+  Future<void> _preloadEditTargetOptions() async {
+    if (!mounted || widget.existingPost == null) return;
+    final AuthProvider auth = context.read<AuthProvider>();
+    if (_targetKind == _TargetKind.campaign ||
+        _targetKind == _TargetKind.expenditure) {
+      await _ensureCampaignOptions(auth, force: true);
+    }
+    if (!mounted) return;
+    if (_targetKind == _TargetKind.expenditure &&
+        _effectiveCampaignId != null) {
+      await _loadExpenditureOptions(_effectiveCampaignId!);
     }
   }
 
@@ -320,51 +341,33 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
     }
   }
 
-  /// Giống [CampaignsScreen]: Spring Page hoặc list thẳng.
-  static List<dynamic> _flattenCampaignResponse(dynamic raw) {
-    if (raw is List<dynamic>) return raw;
-    if (raw is! Map<String, dynamic>) return <dynamic>[];
-
-    final dynamic data = raw['data'];
-    if (data is List<dynamic>) return data;
-    if (data is Map<String, dynamic>) {
-      final dynamic nestedContent = data['content'];
-      if (nestedContent is List<dynamic>) return nestedContent;
-      final dynamic nestedData = data['data'];
-      if (nestedData is List<dynamic>) return nestedData;
-    }
-
-    final dynamic content = raw['content'];
-    if (content is List<dynamic>) return content;
-
-    return <dynamic>[];
-  }
-
+  /// Chỉ chiến dịch do user làm chủ quỹ (parity web modal `/post`).
   Future<_CampaignPickResult> _loadCampaignTitles(int userId) async {
     final Map<int, String> byId = <int, String>{};
-    bool anyCallOk = false;
+    const int size = 50;
+    int page = 0;
+    bool fetchedOk = false;
 
-    try {
-      final Response<dynamic> r =
-          await _api.getUserCampaigns(userId, page: 0, size: 50);
-      anyCallOk = true;
-      final dynamic data = r.data;
-      if (data is Map<String, dynamic>) {
+    while (true) {
+      try {
+        final Response<dynamic> r =
+            await _api.getUserCampaigns(userId, page: page, size: size);
+        fetchedOk = true;
+        final dynamic data = r.data;
+        if (data is! Map<String, dynamic>) break;
         final List<dynamic> content = data['content'] as List<dynamic>? ??
             data['items'] as List<dynamic>? ??
             <dynamic>[];
+        if (content.isEmpty) break;
         _mergeCampaignRowsIntoMap(content, byId);
+        if (content.length < size) break;
+        page++;
+      } catch (_) {
+        if (!fetchedOk) {
+          throw Exception('campaigns_fetch_failed');
+        }
+        break;
       }
-    } catch (_) {}
-
-    try {
-      final Response<dynamic> r = await _api.getCampaigns();
-      anyCallOk = true;
-      _mergeCampaignRowsIntoMap(_flattenCampaignResponse(r.data), byId);
-    } catch (_) {}
-
-    if (!anyCallOk) {
-      throw Exception('campaigns_fetch_failed');
     }
 
     final List<MapEntry<int, String>> entries = byId.entries.toList()
@@ -454,17 +457,32 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
       final _CampaignPickResult res = await _loadCampaignTitles(auth.user!.id);
       if (!mounted) return;
       setState(() {
-        _campaignOptions = _dedupeEntriesById(
+        List<MapEntry<int, String>> options = _dedupeEntriesById(
           List<MapEntry<int, String>>.generate(
             res.ids.length,
             (int i) => MapEntry<int, String>(res.ids[i], res.titles[i]),
           ),
         );
-        _campaignListError = res.ids.isEmpty
-            ? 'Chưa có chiến dịch trong hệ thống. Bạn có thể thử tải lại.'
+        if (_isEdit &&
+            _targetKind == _TargetKind.campaign &&
+            _campaignTargetId != null &&
+            !options.any((MapEntry<int, String> e) => e.key == _campaignTargetId)) {
+          final String orphanLabel = _campaignLabel.trim().isNotEmpty
+              ? _campaignLabel
+              : 'Chiến dịch #${_campaignTargetId!}';
+          options = <MapEntry<int, String>>[
+            MapEntry<int, String>(_campaignTargetId!, orphanLabel),
+            ...options,
+          ];
+        }
+        _campaignOptions = options;
+        _campaignListError = options.isEmpty
+            ? 'Bạn chưa có chiến dịch nào. Tạo chiến dịch trước khi gắn bài viết.'
             : null;
-        if (_campaignTargetId != null &&
-            !_campaignOptions.any((MapEntry<int, String> e) => e.key == _campaignTargetId)) {
+        if (!_isEdit &&
+            !_isLockedLinkedCampaign &&
+            _campaignTargetId != null &&
+            !options.any((MapEntry<int, String> e) => e.key == _campaignTargetId)) {
           _campaignTargetId = null;
           _campaignLabel = '';
         }

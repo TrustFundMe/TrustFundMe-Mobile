@@ -12,9 +12,11 @@ import '../widgets/feed/create_feed_post_sheet.dart';
 import '../widgets/feed/feed_comments_panel.dart';
 import '../widgets/feed/feed_dwell_tracker.dart';
 import '../widgets/feed/feed_post_attachments.dart';
+import '../widgets/feed/feed_post_target_nav.dart';
 import '../widgets/flags/flag_reason_sheet.dart';
 import '../core/utils/flag_error_resolver.dart';
 import '../core/utils/flag_duplicate_guard.dart';
+import '../core/utils/feed_post_flag_guard.dart';
 
 /// Full post + inline comments (danbox `/post/[id]` parity).
 class FeedPostDetailScreen extends StatefulWidget {
@@ -195,6 +197,15 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
       );
       return;
     }
+    if (!userCanFlagFeedPost(p, auth.user?.id)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Color(0xFFDC2626),
+          content: Text('Bạn không thể tố cáo bài viết của chính mình.'),
+        ),
+      );
+      return;
+    }
     final String? r = await showFeedPostFlagReasonBottomSheet(context);
     if (r == null || r.isEmpty || !mounted) return;
     final bool duplicated = await hasSubmittedFlag(_api, postId: p.id);
@@ -234,6 +245,107 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
       context,
       existingPost: p,
       onUpdated: () => _load(),
+    );
+  }
+
+  Widget _buildPostActionBar(FeedPostModel post, AuthProvider auth) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: <Widget>[
+          InkWell(
+            onTap: _toggleLike,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+              child: Row(
+                children: <Widget>[
+                  Icon(
+                    post.isLiked ? Icons.favorite : Icons.favorite_border,
+                    size: 20,
+                    color: post.isLiked ? _primary : _text,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${post.likeCount} thích',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      color: post.isLiked ? _primary : _text,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 18),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              children: <Widget>[
+                const Icon(
+                  Icons.mode_comment_outlined,
+                  size: 20,
+                  color: _text,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Bình luận (${post.commentCount})',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: _text,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 18),
+          InkWell(
+            onTap: _shareLink,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+              child: Row(
+                children: <Widget>[
+                  Icon(Icons.send_outlined, size: 20, color: _text),
+                  SizedBox(width: 6),
+                  Text(
+                    'Chia sẻ',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      color: _text,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 18),
+          if (auth.isLoggedIn &&
+              userCanFlagFeedPost(post, auth.user?.id))
+            InkWell(
+              onTap: _flagPost,
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+                child: Row(
+                  children: <Widget>[
+                    Icon(Icons.flag_outlined, size: 20, color: _muted),
+                    SizedBox(width: 6),
+                    Text(
+                      'Báo cáo',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                        color: _muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -279,6 +391,8 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final AuthProvider auth = context.watch<AuthProvider>();
+    final double mediaImageCap =
+        (MediaQuery.sizeOf(context).height * 0.26).clamp(160.0, 220.0);
     final bool isOwner =
         auth.user != null && _post != null && auth.user!.id == _post!.authorId;
 
@@ -292,24 +406,39 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                     visibilityKey: ValueKey<String>('dwell-detail-${widget.postId}'),
                     dwell: const Duration(seconds: 3),
                     onDwell: _onDwellView,
-                    child: Column(
-                      children: <Widget>[
-                        Expanded(
-                          flex: 52,
-                          child: SingleChildScrollView(
-                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
-                            child: Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(color: const Color(0xFFE5E7EB)),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  Row(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+                      child: FeedCommentsPanel(
+                        postId: widget.postId,
+                        isLocked: _post!.isLocked,
+                        currentUserId: auth.user?.id,
+                        showSheetChrome: false,
+                        mergedScrollWithComposer: true,
+                        onTotalChanged: (int n) {
+                          if (_post == null || !mounted) return;
+                          setState(() {
+                            _post!.commentCount = n;
+                            _post!.replyCount = n;
+                          });
+                        },
+                        prependInScroll: Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: const Color(0xFFE5E7EB)),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: <Widget>[
+                              Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 18, 16, 12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Row(
                                     children: <Widget>[
                                       Container(
                                         padding: const EdgeInsets.symmetric(
@@ -428,7 +557,8 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 16),
+                                  FeedPostTargetPill(api: _api, post: _post!),
+                                  const SizedBox(height: 12),
                                   SelectableText(
                                     _stripHtml(_post!.content).isNotEmpty
                                         ? _stripHtml(_post!.content)
@@ -443,158 +573,25 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                     const SizedBox(height: 16),
                                     FeedPostAttachmentsPreview(
                                       media: _media,
-                                      imageHeight: 220,
+                                      imageHeight: mediaImageCap,
                                       borderRadius: 14,
                                     ),
                                   ],
-                                  const Padding(
-                                    padding: EdgeInsets.symmetric(vertical: 16),
-                                    child: Divider(height: 1),
-                                  ),
-                                  SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    child: Row(
-                                      children: <Widget>[
-                                        InkWell(
-                                          onTap: _toggleLike,
-                                          borderRadius: BorderRadius.circular(8),
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              vertical: 8,
-                                              horizontal: 6,
-                                            ),
-                                            child: Row(
-                                              children: <Widget>[
-                                                Icon(
-                                                  _post!.isLiked
-                                                      ? Icons.favorite
-                                                      : Icons.favorite_border,
-                                                  size: 20,
-                                                  color: _post!.isLiked ? _primary : _text,
-                                                ),
-                                                const SizedBox(width: 6),
-                                                Text(
-                                                  '${_post!.likeCount} thích',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w700,
-                                                    fontSize: 14,
-                                                    color: _post!.isLiked ? _primary : _text,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 18),
-                                        Padding(
-                                          padding: const EdgeInsets.symmetric(vertical: 8),
-                                          child: Row(
-                                            children: <Widget>[
-                                              const Icon(
-                                                Icons.mode_comment_outlined,
-                                                size: 20,
-                                                color: _text,
-                                              ),
-                                              const SizedBox(width: 6),
-                                              Text(
-                                                'Bình luận (${_post!.commentCount})',
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w700,
-                                                  fontSize: 14,
-                                                  color: _text,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(width: 18),
-                                        InkWell(
-                                          onTap: _shareLink,
-                                          child: const Padding(
-                                            padding: EdgeInsets.symmetric(
-                                              vertical: 8,
-                                              horizontal: 6,
-                                            ),
-                                            child: Row(
-                                              children: <Widget>[
-                                                Icon(
-                                                  Icons.send_outlined,
-                                                  size: 20,
-                                                  color: _text,
-                                                ),
-                                                SizedBox(width: 6),
-                                                Text(
-                                                  'Chia sẻ',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w700,
-                                                    fontSize: 14,
-                                                    color: _text,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 18),
-                                        if (auth.isLoggedIn)
-                                          InkWell(
-                                            onTap: _flagPost,
-                                            child: const Padding(
-                                              padding: EdgeInsets.symmetric(
-                                                vertical: 8,
-                                                horizontal: 6,
-                                              ),
-                                              child: Row(
-                                                children: <Widget>[
-                                                  Icon(
-                                                    Icons.flag_outlined,
-                                                    size: 20,
-                                                    color: _muted,
-                                                  ),
-                                                  SizedBox(width: 6),
-                                                  Text(
-                                                    'Báo cáo',
-                                                    style: TextStyle(
-                                                      fontWeight: FontWeight.w700,
-                                                      fontSize: 14,
-                                                      color: _muted,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
+                              const Divider(height: 1, thickness: 1),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(8, 4, 8, 10),
+                                child: _buildPostActionBar(_post!, auth),
+                              ),
+                            ],
                           ),
                         ),
-                        const Divider(height: 1, thickness: 1),
-                        Expanded(
-                          flex: 48,
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(14, 10, 14, 8),
-                            child: FeedCommentsPanel(
-                              postId: widget.postId,
-                              isLocked: _post!.isLocked,
-                              currentUserId: auth.user?.id,
-                              showSheetChrome: false,
-                              onTotalChanged: (int n) {
-                                if (_post == null || !mounted) return;
-                                setState(() {
-                                  _post!.commentCount = n;
-                                  _post!.replyCount = n;
-                                });
-                              },
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  );
+                );
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
