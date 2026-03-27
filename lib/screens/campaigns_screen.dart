@@ -49,14 +49,7 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
     try {
       final response = await _api.getCampaigns();
       final dynamic raw = response.data;
-      final List<dynamic> data;
-      if (raw is List<dynamic>) {
-        data = raw;
-      } else if (raw is Map<String, dynamic> && raw['data'] is List<dynamic>) {
-        data = raw['data'] as List<dynamic>;
-      } else {
-        data = <dynamic>[];
-      }
+      final List<dynamic> data = _extractCampaignList(raw);
 
       final List<CampaignModel> parsed = data
           .map(
@@ -79,6 +72,25 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
         _errorMessage = 'Không tải được danh sách chiến dịch. Vui lòng thử lại.';
       });
     }
+  }
+
+  List<dynamic> _extractCampaignList(dynamic raw) {
+    if (raw is List<dynamic>) return raw;
+    if (raw is! Map<String, dynamic>) return <dynamic>[];
+
+    final dynamic data = raw['data'];
+    if (data is List<dynamic>) return data;
+    if (data is Map<String, dynamic>) {
+      final dynamic nestedContent = data['content'];
+      if (nestedContent is List<dynamic>) return nestedContent;
+      final dynamic nestedData = data['data'];
+      if (nestedData is List<dynamic>) return nestedData;
+    }
+
+    final dynamic content = raw['content'];
+    if (content is List<dynamic>) return content;
+
+    return <dynamic>[];
   }
 
   Future<void> _fetchProgressInBackground(List<CampaignModel> campaigns) async {

@@ -7,6 +7,9 @@ import '../core/models/payment_models.dart';
 import 'donation_screen.dart';
 import 'chat_screen.dart';
 import '../widgets/feed/create_feed_post_sheet.dart';
+import '../core/models/feed_post_model.dart';
+import 'feed_post_detail_screen.dart';
+import 'campaign_posts_screen.dart';
 
 /// Màn chi tiết chiến dịch: số tiền đã quyên / mục tiêu / % và người ủng hộ gần đây (tương tự web campaigns-details).
 class CampaignDetailScreen extends StatefulWidget {
@@ -28,6 +31,8 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
 
   CampaignProgressModel? _progress;
   List<RecentDonorModel> _donors = <RecentDonorModel>[];
+  List<FeedPostModel> _posts = <FeedPostModel>[];
+  bool _loadingPosts = false;
   bool _loading = true;
   String? _errorMessage;
   bool _refreshCampaignsList = false;
@@ -37,6 +42,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     super.initState();
     _progress = widget.initialProgress;
     _load();
+    _loadPosts();
   }
 
   Future<void> _load() async {
@@ -87,6 +93,86 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         _errorMessage =
             'Không tải được chi tiết gây quỹ. Kéo xuống để thử lại.';
       });
+    }
+  }
+
+  Future<void> _loadPosts() async {
+    if (_loadingPosts) return;
+    if (mounted) setState(() => _loadingPosts = true);
+    try {
+      final res = await _api.getFeedPosts(
+        page: 0,
+        size: 4,
+        campaignId: widget.campaign.id,
+      );
+      final dynamic data = res.data;
+      if (data is! Map<String, dynamic>) return;
+      final List<dynamic> content =
+          data['content'] as List<dynamic>? ?? <dynamic>[];
+      final List<FeedPostModel> list = content
+          .whereType<Map<String, dynamic>>()
+          .map(FeedPostModel.fromJson)
+          .toList();
+      if (!mounted) return;
+      setState(() => _posts = list);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _posts = <FeedPostModel>[]);
+    } finally {
+      if (mounted) setState(() => _loadingPosts = false);
+    }
+  }
+
+  Future<void> _flagCampaign() async {
+    final TextEditingController reason = TextEditingController();
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext c) {
+        return AlertDialog(
+          title: const Text('Báo cáo chiến dịch'),
+          content: TextField(
+            controller: reason,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: 'Lý do...',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Huỷ'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Gửi'),
+            ),
+          ],
+        );
+      },
+    );
+    final String r = reason.text.trim();
+    reason.dispose();
+    if (ok != true || !mounted) return;
+    if (r.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng nhập lý do.')),
+      );
+      return;
+    }
+    try {
+      await _api.submitFlag(campaignId: widget.campaign.id, reason: r);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã gửi báo cáo. Cảm ơn bạn.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gửi báo cáo thất bại.')),
+        );
+      }
     }
   }
 
@@ -159,6 +245,11 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
             onPressed: () => Navigator.of(context).pop(_refreshCampaignsList),
           ),
           actions: [
+            IconButton(
+              tooltip: 'Báo cáo chiến dịch',
+              icon: const Icon(Icons.flag_outlined, color: webTextDark),
+              onPressed: _flagCampaign,
+            ),
             IconButton(
               tooltip: 'Đăng bài về chiến dịch',
               icon: const Icon(Icons.post_add_outlined, color: webGreen),
@@ -544,6 +635,177 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                         ),
                                       ),
                                     ],
+                                  ),
+                                );
+                              }),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFE5E7EB)),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: <Widget>[
+                                const Text(
+                                  'Bài viết về chiến dịch',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF202426),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () async {
+                                    await Navigator.of(context).push<void>(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => CampaignPostsScreen(
+                                          campaignId: widget.campaign.id,
+                                          campaignTitle: widget.campaign.title,
+                                        ),
+                                      ),
+                                    );
+                                    if (mounted) await _loadPosts();
+                                  },
+                                  child: const Text(
+                                    'Xem thêm',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: webGreen,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            if (_loadingPosts)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                child: Center(child: CircularProgressIndicator()),
+                              )
+                            else if (_posts.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 12),
+                                child: Text(
+                                  'Chưa có bài viết nào',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: webMuted,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              )
+                            else
+                              ..._posts.map((FeedPostModel p) {
+                                return InkWell(
+                                  onTap: () {
+                                    Navigator.of(context).push<void>(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => FeedPostDetailScreen(
+                                          postId: p.id,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(12),
+                                    margin: const EdgeInsets.only(bottom: 10),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF9FAFB),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: const Color(0xFFE5E7EB),
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: <Widget>[
+                                        Text(
+                                          (p.title ?? '').trim().isEmpty
+                                              ? 'Bài viết #${p.id}'
+                                              : p.title!.trim(),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13,
+                                            color: webTextDark,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          p.authorName,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: webMuted,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 10),
+                                        Row(
+                                          children: <Widget>[
+                                            const Icon(
+                                              Icons.remove_red_eye_outlined,
+                                              size: 16,
+                                              color: webMuted,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              '${p.viewCount}',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: webMuted,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 14),
+                                            const Icon(
+                                              Icons.favorite_border,
+                                              size: 16,
+                                              color: webMuted,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              '${p.likeCount}',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: webMuted,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 14),
+                                            const Icon(
+                                              Icons.mode_comment_outlined,
+                                              size: 16,
+                                              color: webMuted,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              '${p.commentCount}',
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                color: webMuted,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 );
                               }),

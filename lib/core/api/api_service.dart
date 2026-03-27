@@ -70,6 +70,7 @@ class ApiService {
     int size = 10,
     String sort = 'createdAt,desc',
     int? categoryId,
+    int? campaignId,
   }) async {
     final Map<String, dynamic> q = <String, dynamic>{
       'page': page,
@@ -78,6 +79,9 @@ class ApiService {
     };
     if (categoryId != null) {
       q['categoryId'] = categoryId;
+    }
+    if (campaignId != null) {
+      q['campaignId'] = campaignId;
     }
     return _dio.get(
       '${ApiConfig.campaignUrl}/feed-posts',
@@ -144,6 +148,16 @@ class ApiService {
         if (postId != null) 'postId': postId,
         if (campaignId != null) 'campaignId': campaignId,
         'reason': reason,
+      },
+    );
+  }
+
+  Future<Response<dynamic>> getMyFlags({int page = 0, int size = 20}) async {
+    return _dio.get(
+      '${ApiConfig.campaignUrl}/flags/me',
+      queryParameters: <String, dynamic>{
+        'page': page,
+        'size': size,
       },
     );
   }

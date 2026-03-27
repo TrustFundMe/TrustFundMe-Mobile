@@ -10,6 +10,7 @@ import 'login_screen.dart';
 import 'my_campaigns_screen.dart';
 import 'chat_list_screen.dart';
 import 'appointment_schedule_screen.dart';
+import 'my_flags_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -407,10 +408,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   _buildQuickAction(
                     icon: Icons.favorite_outline,
-                    title: "Impact",
+                    title: "Tác động",
                     onTap: () => _openFeaturePlaceholder(
-                      title: "Impact",
-                      description: "Tính năng Impact sẽ sớm ra mắt để bạn theo dõi tác động của mình.",
+                      title: "Tác động",
+                      description: "Tính năng Tác động sẽ sớm ra mắt để bạn theo dõi đóng góp của mình.",
                       icon: Icons.favorite_outline,
                     ),
                   ),
@@ -450,11 +451,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _buildQuickAction(
                     icon: Icons.flag_outlined,
                     title: "Báo cáo",
-                    onTap: () => _openFeaturePlaceholder(
-                      title: "Báo cáo",
-                      description: "Báo cáo bài viết và nội dung cộng đồng sẽ được tối ưu cho mobile.",
-                      icon: Icons.flag_outlined,
-                    ),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const MyFlagsScreen()),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -642,37 +643,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStaticRow({required IconData icon, required String label, required String value, Color? valueColor}) {
-    return Padding(
-      padding: const EdgeInsets.all(18),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: webBgGray, borderRadius: BorderRadius.circular(10)),
-            child: Icon(icon, size: 20, color: webTextGray),
-          ),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 12, color: webTextGray)),
-              const SizedBox(height: 2),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: valueColor ?? webTextDark,
-                ),
-              ),
-            ],
           ),
         ],
       ),

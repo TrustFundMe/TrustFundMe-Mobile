@@ -8,6 +8,7 @@ import '../core/api/api_service.dart';
 import '../core/models/feed_post_model.dart';
 import '../core/providers/auth_provider.dart';
 import '../widgets/feed/feed_comments_panel.dart';
+import '../widgets/feed/feed_dwell_tracker.dart';
 
 /// Full post + inline comments (danbox `/post/[id]` parity).
 class FeedPostDetailScreen extends StatefulWidget {
@@ -29,6 +30,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   List<String> _imageUrls = <String>[];
   bool _loading = true;
   String? _error;
+  bool _dwellDone = false;
 
   @override
   void initState() {
@@ -104,6 +106,25 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
         _loading = false;
         _error = 'Không tải được bài viết';
       });
+    }
+  }
+
+  Future<void> _onDwellView() async {
+    if (_dwellDone) return;
+    _dwellDone = true;
+    final AuthProvider auth = context.read<AuthProvider>();
+    if (!auth.isLoggedIn) return;
+    try {
+      final Response<dynamic> res = await _api.markUserPostSeen(widget.postId);
+      final dynamic data = res.data;
+      final bool isNew =
+          data is Map<String, dynamic> && data['new'] == true;
+      if (!isNew || !mounted || _post == null) return;
+      setState(() {
+        _post = _post!.copyWithViewCount(_post!.viewCount + 1);
+      });
+    } catch (_) {
+      _dwellDone = false;
     }
   }
 
@@ -231,21 +252,17 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   Widget build(BuildContext context) {
     final AuthProvider auth = context.watch<AuthProvider>();
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF9FAFB),
-      appBar: AppBar(
-        title: const Text('Bài viết', style: TextStyle(fontWeight: FontWeight.w800)),
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: _text,
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Text(_error!, style: const TextStyle(color: _primary)))
-              : _post == null
-                  ? const SizedBox.shrink()
-                  : Column(
+    final Widget body = _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _error != null
+            ? Center(child: Text(_error!, style: const TextStyle(color: _primary)))
+            : _post == null
+                ? const SizedBox.shrink()
+                : FeedDwellTracker(
+                    visibilityKey: ValueKey<String>('dwell-detail-${widget.postId}'),
+                    dwell: const Duration(seconds: 3),
+                    onDwell: _onDwellView,
+                    child: Column(
                       children: <Widget>[
                         Expanded(
                           flex: 52,
@@ -343,8 +360,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                                 _post!.authorAvatar!.isEmpty
                                             ? Text(
                                                 _post!.authorName.isNotEmpty
-                                                    ? _post!.authorName[0]
-                                                        .toUpperCase()
+                                                    ? _post!.authorName[0].toUpperCase()
                                                     : '?',
                                                 style: const TextStyle(
                                                   fontWeight: FontWeight.w800,
@@ -356,8 +372,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
                                           children: <Widget>[
                                             Text(
                                               _post!.authorName,
@@ -403,8 +418,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                         child: Image.network(
                                           _imageUrls.first,
                                           fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) =>
-                                              Container(
+                                          errorBuilder: (_, __, ___) => Container(
                                             color: const Color(0xFFE5E7EB),
                                             alignment: Alignment.center,
                                             child: const Icon(
@@ -439,9 +453,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                                       ? Icons.favorite
                                                       : Icons.favorite_border,
                                                   size: 20,
-                                                  color: _post!.isLiked
-                                                      ? _primary
-                                                      : _text,
+                                                  color: _post!.isLiked ? _primary : _text,
                                                 ),
                                                 const SizedBox(width: 6),
                                                 Text(
@@ -449,9 +461,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                                   style: TextStyle(
                                                     fontWeight: FontWeight.w700,
                                                     fontSize: 14,
-                                                    color: _post!.isLiked
-                                                        ? _primary
-                                                        : _text,
+                                                    color: _post!.isLiked ? _primary : _text,
                                                   ),
                                                 ),
                                               ],
@@ -460,9 +470,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                         ),
                                         const SizedBox(width: 18),
                                         Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: 8,
-                                          ),
+                                          padding: const EdgeInsets.symmetric(vertical: 8),
                                           child: Row(
                                             children: <Widget>[
                                               const Icon(
@@ -569,6 +577,17 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                         ),
                       ],
                     ),
+                  );
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF9FAFB),
+      appBar: AppBar(
+        title: const Text('Bài viết', style: TextStyle(fontWeight: FontWeight.w800)),
+        elevation: 0,
+        backgroundColor: Colors.white,
+        foregroundColor: _text,
+      ),
+      body: body,
     );
   }
 }
