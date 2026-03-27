@@ -2,11 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../core/api/api_service.dart';
+import '../core/models/feed_post_media_model.dart';
 import '../core/models/feed_post_model.dart';
 import '../core/providers/auth_provider.dart';
+import '../widgets/feed/create_feed_post_sheet.dart';
 import '../widgets/feed/feed_comments_sheet.dart';
 import '../widgets/feed/feed_dwell_tracker.dart';
+import '../widgets/feed/feed_post_attachments.dart';
 import 'feed_post_detail_screen.dart';
+import '../widgets/flags/flag_reason_sheet.dart';
+import '../core/utils/flag_error_resolver.dart';
+import '../core/utils/flag_duplicate_guard.dart';
 
 class CampaignPostsScreen extends StatefulWidget {
   const CampaignPostsScreen({
@@ -32,6 +38,8 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
   final ScrollController _scroll = ScrollController();
 
   List<FeedPostModel> _posts = <FeedPostModel>[];
+  final Map<int, List<FeedPostMediaItem>> _mediaByPostId =
+      <int, List<FeedPostMediaItem>>{};
   final Set<int> _dwellDone = <int>{};
 
   bool _loading = true;
@@ -89,12 +97,17 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
       final List<FeedPostModel> chunk = content
           .whereType<Map<String, dynamic>>()
           .map(FeedPostModel.fromJson)
+          .where((FeedPostModel p) {
+            final String type = (p.targetType ?? '').toUpperCase();
+            return type == 'CAMPAIGN' && p.targetId == widget.campaignId;
+          })
           .toList();
 
       if (!mounted) return;
       setState(() {
         if (refresh) {
           _posts = chunk;
+          _mediaByPostId.clear();
           _dwellDone.clear();
           _page = 1;
         } else {
@@ -103,6 +116,7 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
         }
         _hasMore = (refresh ? 1 : _page) < totalPages;
       });
+      await _hydrateMedia(chunk);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -115,6 +129,72 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
           _loading = false;
           _loadingMore = false;
         });
+      }
+    }
+  }
+
+  Future<void> _hydrateMedia(Iterable<FeedPostModel> posts) async {
+    for (final FeedPostModel p in posts) {
+      if (_mediaByPostId.containsKey(p.id)) continue;
+      try {
+        final res = await _api.getMediaByPostId(p.id);
+        final List<FeedPostMediaItem> items =
+            parseFeedPostMediaResponse(res.data);
+        if (mounted) setState(() => _mediaByPostId[p.id] = items);
+      } catch (_) {
+        if (mounted) {
+          setState(() => _mediaByPostId[p.id] = <FeedPostMediaItem>[]);
+        }
+      }
+    }
+  }
+
+  Future<void> _editPost(FeedPostModel post) async {
+    await showCreateFeedPostSheet(
+      context,
+      linkedCampaignId: widget.campaignId,
+      linkedCampaignTitle: widget.campaignTitle,
+      existingPost: post,
+      onUpdated: () => _load(refresh: true),
+    );
+  }
+
+  Future<void> _deletePost(FeedPostModel post) async {
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext c) {
+        return AlertDialog(
+          title: const Text('Xóa bài viết?'),
+          content: const Text('Hành động này không hoàn tác.'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Huỷ'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Xóa'),
+            ),
+          ],
+        );
+      },
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _api.deleteFeedPost(post.id);
+      if (!mounted) return;
+      setState(() {
+        _posts.removeWhere((FeedPostModel e) => e.id == post.id);
+        _mediaByPostId.remove(post.id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đã xóa bài viết.')),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không xóa được bài.')),
+        );
       }
     }
   }
@@ -148,39 +228,16 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
       );
       return;
     }
-    final TextEditingController reason = TextEditingController();
-    final bool? ok = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext c) {
-        return AlertDialog(
-          title: const Text('Báo cáo bài viết'),
-          content: TextField(
-            controller: reason,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'Lý do...',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('Huỷ'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(c, true),
-              child: const Text('Gửi'),
-            ),
-          ],
-        );
-      },
-    );
-    final String r = reason.text.trim();
-    reason.dispose();
-    if (ok != true || !mounted) return;
-    if (r.isEmpty) {
+    final String? r = await showFeedPostFlagReasonBottomSheet(context);
+    if (r == null || r.isEmpty || !mounted) return;
+    final bool duplicated = await hasSubmittedFlag(_api, postId: post.id);
+    if (duplicated) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập lý do.')),
+        const SnackBar(
+          backgroundColor: Color(0xFFDC2626),
+          content: Text('Bạn đã tố cáo bài viết này rồi.'),
+        ),
       );
       return;
     }
@@ -191,10 +248,13 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
           const SnackBar(content: Text('Đã gửi báo cáo. Cảm ơn bạn.')),
         );
       }
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Gửi báo cáo thất bại.')),
+          SnackBar(
+            backgroundColor: Color(0xFFDC2626),
+            content: Text(resolveFlagSubmitError(e)),
+          ),
         );
       }
     }
@@ -218,6 +278,9 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final AuthProvider auth = context.watch<AuthProvider>();
+    final int? uid = auth.user?.id;
+
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
@@ -249,6 +312,9 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
                     );
                   }
                   final FeedPostModel post = _posts[i];
+                  final List<FeedPostMediaItem> media =
+                      _mediaByPostId[post.id] ?? <FeedPostMediaItem>[];
+                  final bool isOwner = uid != null && post.authorId == uid;
                   return FeedDwellTracker(
                     visibilityKey: ValueKey<String>('dwell-campaign-${post.id}'),
                     dwell: const Duration(seconds: 3),
@@ -293,8 +359,21 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
                                     icon: const Icon(Icons.more_horiz, color: _muted),
                                     onSelected: (String value) {
                                       if (value == 'flag') _flagPost(post);
+                                      if (value == 'edit') _editPost(post);
+                                      if (value == 'delete') _deletePost(post);
                                     },
-                                    itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
+                                    itemBuilder: (BuildContext c) =>
+                                        <PopupMenuEntry<String>>[
+                                      if (isOwner) ...<PopupMenuEntry<String>>[
+                                        const PopupMenuItem<String>(
+                                          value: 'edit',
+                                          child: Text('Chỉnh sửa'),
+                                        ),
+                                        const PopupMenuItem<String>(
+                                          value: 'delete',
+                                          child: Text('Xóa'),
+                                        ),
+                                      ],
                                       const PopupMenuItem<String>(
                                         value: 'flag',
                                         child: Text('Báo cáo bài viết'),
@@ -315,6 +394,14 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
                                 ),
                               ),
                               const SizedBox(height: 10),
+                              if (media.isNotEmpty) ...<Widget>[
+                                FeedPostAttachmentsPreview(
+                                  media: media,
+                                  imageHeight: 120,
+                                  borderRadius: 12,
+                                ),
+                                const SizedBox(height: 10),
+                              ],
                               Row(
                                 children: <Widget>[
                                   const Icon(Icons.remove_red_eye_outlined, size: 16, color: _muted),

@@ -21,6 +21,7 @@ class FeedPostModel {
     this.isPinned = false,
     this.isLocked = false,
     this.categoryId,
+    this.postType = 'DISCUSSION',
   });
 
   final int id;
@@ -44,6 +45,8 @@ class FeedPostModel {
   final bool isPinned;
   bool isLocked;
   final int? categoryId;
+  /// Backend `type` (e.g. DISCUSSION).
+  final String postType;
 
   static int? _int(dynamic v) {
     if (v == null) return null;
@@ -84,6 +87,9 @@ class FeedPostModel {
       isPinned: _bool(json['isPinned']),
       isLocked: _bool(json['isLocked']),
       categoryId: _int(json['categoryId']),
+      postType: (json['type'] as String?)?.trim().isNotEmpty == true
+          ? (json['type'] as String).trim()
+          : 'DISCUSSION',
     );
   }
 
@@ -110,6 +116,7 @@ class FeedPostModel {
       isPinned: isPinned,
       isLocked: isLocked,
       categoryId: categoryId,
+      postType: postType,
     );
   }
 
@@ -136,6 +143,7 @@ class FeedPostModel {
       isPinned: isPinned,
       isLocked: isLocked,
       categoryId: categoryId,
+      postType: postType,
     );
   }
 }

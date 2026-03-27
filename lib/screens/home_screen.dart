@@ -308,15 +308,19 @@ class HomeScreen extends StatelessWidget {
   Widget _buildAboutUs(BuildContext context, Color primary, Color dark, Color gray, Color emerald) {
     return Container(
       margin: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 24),
-      padding: const EdgeInsets.all(24.0),
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(32),
+        color: const Color(0xFFFCFCFD),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: const Color(0xFFE5E7EB),
+          width: 1,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -367,13 +371,17 @@ class HomeScreen extends StatelessWidget {
             title: "Báo cáo minh bạch 24/7",
             color: const Color(0xFF1B5E20),
           ).animate().fadeIn(delay: 600.ms),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: Color(0xFFE5E7EB)),
+          const SizedBox(height: 12),
           _buildFeatureRow(
             icon: Icons.shield_rounded,
             title: "Bảo mật thông tin đóng góp",
             color: const Color(0xFF00695C),
           ).animate().fadeIn(delay: 700.ms),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: Color(0xFFE5E7EB)),
+          const SizedBox(height: 12),
           _buildFeatureRow(
             icon: Icons.auto_awesome_rounded,
             title: "Hỗ trợ công nghệ AI tiên tiến",
@@ -388,20 +396,23 @@ class HomeScreen extends StatelessWidget {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(10),
+          width: 34,
+          height: 34,
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            shape: BoxShape.circle,
+            color: color.withOpacity(0.08),
+            borderRadius: BorderRadius.circular(999),
           ),
-          child: Icon(icon, color: color, size: 22),
+          child: Icon(icon, color: color, size: 18),
         ),
-        const SizedBox(width: 16),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF1F2937),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF111827),
+            ),
           ),
         ),
       ],

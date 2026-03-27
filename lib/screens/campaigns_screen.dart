@@ -63,6 +63,7 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
         _campaigns = parsed;
         _loading = false;
       });
+      _precacheCampaignCovers(parsed);
       _fetchProgressInBackground(parsed);
     } catch (_) {
       if (!mounted) return;
@@ -91,6 +92,23 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
     if (content is List<dynamic>) return content;
 
     return <dynamic>[];
+  }
+
+  /// Tải trước ảnh bìa để không phải chờ kéo tới mới hiện (ListView lazy paint).
+  void _precacheCampaignCovers(List<CampaignModel> campaigns) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final Set<String> seen = <String>{};
+      for (final CampaignModel c in campaigns) {
+        final String? url = c.coverImageUrl;
+        if (url == null || url.isEmpty) continue;
+        if (seen.contains(url)) continue;
+        seen.add(url);
+        try {
+          await precacheImage(NetworkImage(url), context);
+        } catch (_) {}
+      }
+    });
   }
 
   Future<void> _fetchProgressInBackground(List<CampaignModel> campaigns) async {

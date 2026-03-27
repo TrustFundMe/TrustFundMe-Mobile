@@ -202,7 +202,6 @@ class _DonationScreenState extends State<DonationScreen> {
           try {
             await _api.verifyDonationPayment(completedDonationId);
           } catch (_) {}
-
           if (!mounted) return;
           final bool? goBackWithRefresh = await Navigator.of(context).push<bool>(
             MaterialPageRoute<bool>(
@@ -247,6 +246,7 @@ class _DonationScreenState extends State<DonationScreen> {
       }
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
 import '../core/api/api_service.dart';
 
 class ExpenditureDetailScreen extends StatefulWidget {
@@ -19,13 +22,16 @@ class ExpenditureDetailScreen extends StatefulWidget {
 
 class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
   final ApiService _api = ApiService();
-  final NumberFormat _fmt =
-      NumberFormat.currency(locale: 'vi_VN', symbol: '₫');
+  final NumberFormat _fmt = NumberFormat('#,###', 'en_US');
+  final ImagePicker _picker = ImagePicker();
 
   bool _isLoading = true;
   bool _isSubmitting = false;
+  bool _isSubmittingEvidence = false;
   late Map<String, dynamic> _expenditure;
   List<dynamic> _items = [];
+  final List<XFile> _evidenceImages = <XFile>[];
+  final TextEditingController _evidenceNoteCtrl = TextEditingController();
 
   static const _stepLabels = [
     'Lập\nkế hoạch',
@@ -41,6 +47,14 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
     _expenditure = widget.expenditure;
     _loadItems();
   }
+
+  @override
+  void dispose() {
+    _evidenceNoteCtrl.dispose();
+    super.dispose();
+  }
+
+  String _vnd(num value) => '${_fmt.format(value)} ₫';
 
   Future<void> _loadItems() async {
     setState(() => _isLoading = true);
@@ -116,6 +130,74 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
       _snack('Lỗi: $e', isError: true);
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  Future<void> _pickEvidenceImages() async {
+    final List<XFile> files = await _picker.pickMultiImage(imageQuality: 85);
+    if (files.isEmpty) return;
+    setState(() => _evidenceImages.addAll(files));
+  }
+
+  Future<void> _submitEvidence() async {
+    final int expenditureId = _expenditure['id'] as int;
+    final int campaignId = _expenditure['campaignId'] as int;
+    if (_evidenceImages.isEmpty) {
+      _snack('Vui lòng chọn ít nhất một ảnh minh chứng.', isError: true);
+      return;
+    }
+
+    setState(() => _isSubmittingEvidence = true);
+    try {
+      int failUploads = 0;
+      final String note = _evidenceNoteCtrl.text.trim();
+
+      for (final XFile x in _evidenceImages) {
+        try {
+          await _api.uploadMedia(
+            File(x.path),
+            campaignId: campaignId,
+            expenditureId: expenditureId,
+            mediaType: 'PHOTO',
+            description: note.isEmpty
+                ? 'Minh chứng chi tiêu cho khoản chi #$expenditureId'
+                : note,
+          );
+        } catch (_) {
+          failUploads++;
+        }
+      }
+
+      await _api.createFeedPost(<String, dynamic>{
+        'type': 'UPDATE',
+        'visibility': 'PUBLIC',
+        'title': 'Cập nhật minh chứng chi tiêu',
+        'content': note.isEmpty
+            ? 'Tôi vừa cập nhật minh chứng cho hoạt động chi tiêu. Mời mọi người cùng theo dõi.'
+            : note,
+        'status': 'PUBLISHED',
+        'targetId': expenditureId,
+        'targetType': 'EXPENDITURE',
+      });
+
+      await _api.updateEvidenceStatus(expenditureId, 'SUBMITTED');
+      await _refreshExpenditure();
+
+      if (!mounted) return;
+      setState(() {
+        _evidenceImages.clear();
+        _evidenceNoteCtrl.clear();
+      });
+
+      _snack(
+        failUploads > 0
+            ? 'Đã nộp minh chứng. $failUploads ảnh tải lên lỗi.'
+            : 'Đã nộp minh chứng và đăng bài cập nhật.',
+      );
+    } catch (e) {
+      _snack('Nộp minh chứng thất bại: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _isSubmittingEvidence = false);
     }
   }
 
@@ -354,6 +436,8 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
             _infoBox(
               'Hạn nộp hóa đơn: ${DateFormat('dd/MM/yyyy').format(DateTime.parse(_expenditure['evidenceDueAt']))}',
             ),
+          const SizedBox(height: 16),
+          _buildEvidenceComposer(),
           const SizedBox(height: 32),
         ]);
       default:
@@ -430,7 +514,7 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
             children: [
               const Text('Tổng dự kiến:',
                   style: TextStyle(fontWeight: FontWeight.bold)),
-              Text(_fmt.format(total),
+              Text(_vnd(total),
                   style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 17,
@@ -496,7 +580,7 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
                                   fontSize: 14,
                                   color: Color(0xFF1F2937))),
                           const SizedBox(height: 2),
-                          Text('SL: $qty  ×  ${_fmt.format(ep)}',
+                          Text('SL: $qty  ×  ${_vnd(ep)}',
                               style: const TextStyle(
                                   color: Color(0xFF6B7280),
                                   fontSize: 12)),
@@ -504,7 +588,7 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    Text(_fmt.format(ep * qty),
+                    Text(_vnd(ep * qty),
                         style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 13,
@@ -543,6 +627,105 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
       child: Text(msg,
           style: const TextStyle(
               color: Color(0xFF6B7280), fontSize: 13)),
+    );
+  }
+
+  Widget _buildEvidenceComposer() {
+    final bool canSubmit = _evidenceImages.isNotEmpty && !_isSubmittingEvidence;
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            'Nộp minh chứng chi tiêu',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Ảnh minh chứng sẽ được tải lên và hệ thống tự động đăng bài cập nhật.',
+            style: TextStyle(color: Color(0xFF6B7280), fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _isSubmittingEvidence ? null : _pickEvidenceImages,
+            icon: const Icon(Icons.add_photo_alternate_outlined),
+            label: Text('Chọn ảnh (${_evidenceImages.length})'),
+          ),
+          if (_evidenceImages.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 86,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _evidenceImages.length,
+                separatorBuilder: (_, index) => const SizedBox(width: 8),
+                itemBuilder: (_, int i) {
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: <Widget>[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.file(
+                          File(_evidenceImages[i].path),
+                          width: 86,
+                          height: 86,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      Positioned(
+                        top: -6,
+                        right: -6,
+                        child: IconButton(
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.black87,
+                            padding: const EdgeInsets.all(2),
+                            minimumSize: const Size(24, 24),
+                          ),
+                          icon: const Icon(Icons.close, color: Colors.white, size: 14),
+                          onPressed: _isSubmittingEvidence
+                              ? null
+                              : () => setState(() => _evidenceImages.removeAt(i)),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          TextField(
+            controller: _evidenceNoteCtrl,
+            minLines: 2,
+            maxLines: 5,
+            decoration: InputDecoration(
+              labelText: 'Mô tả / lời cảm ơn (tuỳ chọn)',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: canSubmit ? _submitEvidence : null,
+              icon: _isSubmittingEvidence
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.send_outlined),
+              label: Text(_isSubmittingEvidence ? 'Đang gửi...' : 'Gửi minh chứng & đăng bài'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF111827),
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

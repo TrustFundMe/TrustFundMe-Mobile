@@ -105,6 +105,25 @@ class ApiService {
     );
   }
 
+  /// Full update (author only): title, content, status, target*, categoryId.
+  Future<Response<dynamic>> updateFeedPost(int id, Map<String, dynamic> body) async {
+    return _dio.put(
+      '${ApiConfig.campaignUrl}/feed-posts/$id',
+      data: body,
+    );
+  }
+
+  Future<Response<dynamic>> deleteFeedPost(int id) async {
+    return _dio.delete('${ApiConfig.campaignUrl}/feed-posts/$id');
+  }
+
+  Future<Response<dynamic>> patchFeedPostVisibility(int id, String visibility) async {
+    return _dio.patch(
+      '${ApiConfig.campaignUrl}/feed-posts/$id/visibility',
+      data: <String, dynamic>{'visibility': visibility},
+    );
+  }
+
   Future<Response<dynamic>> toggleFeedPostLike(int postId) async {
     return _dio.post('${ApiConfig.campaignUrl}/feed-posts/$postId/like');
   }
@@ -174,6 +193,10 @@ class ApiService {
       '${ApiConfig.mediaUrl}/media/$mediaId',
       data: body,
     );
+  }
+
+  Future<Response<dynamic>> deleteMedia(int mediaId) async {
+    return _dio.delete('${ApiConfig.mediaUrl}/media/$mediaId');
   }
 
   Future<Response<dynamic>> login(String username, String password) async {
@@ -441,6 +464,7 @@ class ApiService {
     File file, {
     int? postId,
     int? campaignId,
+    int? expenditureId,
     String? mediaType,
     String? description,
   }) async {
@@ -456,6 +480,7 @@ class ApiService {
       ),
       if (postId != null) 'postId': postId,
       if (campaignId != null) 'campaignId': campaignId,
+      if (expenditureId != null) 'expenditureId': expenditureId,
       if (mediaType != null) 'mediaType': mediaType,
       if (description != null) 'description': description,
     });
@@ -532,6 +557,13 @@ class ApiService {
   }) async {
     return _dio.get(
       '${ApiConfig.paymentUrl}/campaign/$campaignId/recent-donations',
+      queryParameters: <String, dynamic>{'limit': limit},
+    );
+  }
+
+  Future<Response<dynamic>> getMyDonations({int limit = 50}) async {
+    return _dio.get(
+      '${ApiConfig.paymentUrl}/my-donations',
       queryParameters: <String, dynamic>{'limit': limit},
     );
   }

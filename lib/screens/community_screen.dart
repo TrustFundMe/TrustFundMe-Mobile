@@ -4,13 +4,17 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/api/api_service.dart';
+import '../core/models/feed_post_media_model.dart';
 import '../core/models/feed_post_model.dart';
-import '../core/models/forum_category_model.dart';
 import '../core/providers/auth_provider.dart';
 import 'feed_post_detail_screen.dart';
 import '../widgets/feed/create_feed_post_sheet.dart';
 import '../widgets/feed/feed_comments_sheet.dart';
 import '../widgets/feed/feed_dwell_tracker.dart';
+import '../widgets/feed/feed_post_attachments.dart';
+import '../widgets/flags/flag_reason_sheet.dart';
+import '../core/utils/flag_error_resolver.dart';
+import '../core/utils/flag_duplicate_guard.dart';
 
 enum _FeedQuickFilter { all, unseen, seen, hot }
 
@@ -32,12 +36,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
   final TextEditingController _search = TextEditingController();
 
   List<FeedPostModel> _posts = <FeedPostModel>[];
-  final Map<int, List<String>> _imageUrlsByPostId = <int, List<String>>{};
+  final Map<int, List<FeedPostMediaItem>> _mediaByPostId =
+      <int, List<FeedPostMediaItem>>{};
   final Set<int> _dwellDone = <int>{};
   final Set<int> _seenPostIds = <int>{};
-  List<ForumCategoryModel> _forumCategories = <ForumCategoryModel>[];
-
-  int? _selectedCategoryId;
   _FeedQuickFilter _quickFilter = _FeedQuickFilter.all;
   int _feedTotalElements = 0;
 
@@ -52,7 +54,6 @@ class _CommunityScreenState extends State<CommunityScreen> {
     super.initState();
     _scroll.addListener(_onScroll);
     _initSeenFromPrefs();
-    _loadForumCategories();
     _load(refresh: true);
   }
 
@@ -75,19 +76,6 @@ class _CommunityScreenState extends State<CommunityScreen> {
     } catch (_) {}
   }
 
-  Future<void> _loadForumCategories() async {
-    try {
-      final Response<dynamic> res = await _api.getForumCategories();
-      final dynamic data = res.data;
-      if (data is! List<dynamic>) return;
-      final List<ForumCategoryModel> list = data
-          .whereType<Map<String, dynamic>>()
-          .map(ForumCategoryModel.fromJson)
-          .toList();
-      if (mounted) setState(() => _forumCategories = list);
-    } catch (_) {}
-  }
-
   Future<void> _persistSeenPost(int postId) async {
     if (_seenPostIds.contains(postId)) return;
     if (mounted) {
@@ -104,50 +92,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
     } catch (_) {}
   }
 
-  void _setCategoryAndReload(int? categoryId) {
-    setState(() {
-      _selectedCategoryId = categoryId;
-      _quickFilter = _FeedQuickFilter.all;
-    });
-    _load(refresh: true);
-  }
-
   void _setQuickFilterAndReload(_FeedQuickFilter f) {
-    setState(() {
-      _quickFilter = f;
-      _selectedCategoryId = null;
-    });
+    setState(() => _quickFilter = f);
     _load(refresh: true);
-  }
-
-  static Color? _parseHexColor(String? hex) {
-    if (hex == null || hex.isEmpty) return null;
-    String h = hex.trim();
-    if (h.startsWith('#')) h = h.substring(1);
-    if (h.length == 6) h = 'FF$h';
-    final int? v = int.tryParse(h, radix: 16);
-    if (v == null) return null;
-    return Color(v);
   }
 
   static bool _isHotPost(FeedPostModel p) =>
       p.viewCount >= 20 || p.likeCount >= 10;
-
-  String? _categoryLabel(FeedPostModel p) {
-    if (p.categoryId == null) return null;
-    for (final ForumCategoryModel c in _forumCategories) {
-      if (c.id == p.categoryId) return c.name;
-    }
-    return '#${p.categoryId}';
-  }
-
-  Color? _categoryColorForPost(FeedPostModel p) {
-    if (p.categoryId == null) return null;
-    for (final ForumCategoryModel c in _forumCategories) {
-      if (c.id == p.categoryId) return _parseHexColor(c.color);
-    }
-    return const Color(0xFF6366F1);
-  }
 
   @override
   void dispose() {
@@ -183,25 +134,20 @@ class _CommunityScreenState extends State<CommunityScreen> {
     return '${d.day}/${d.month}/${d.year}';
   }
 
-  Future<void> _hydrateImages(Iterable<FeedPostModel> posts) async {
+  Future<void> _hydrateMedia(Iterable<FeedPostModel> posts) async {
     for (final FeedPostModel p in posts) {
-      if (_imageUrlsByPostId.containsKey(p.id)) continue;
+      if (_mediaByPostId.containsKey(p.id)) continue;
       try {
         final Response<dynamic> res = await _api.getMediaByPostId(p.id);
-        final dynamic data = res.data;
-        final List<String> urls = <String>[];
-        if (data is List<dynamic>) {
-          for (final dynamic e in data) {
-            if (e is Map<String, dynamic> && e['url'] != null) {
-              urls.add(e['url'].toString());
-            }
-          }
-        }
+        final List<FeedPostMediaItem> items =
+            parseFeedPostMediaResponse(res.data);
         if (mounted) {
-          setState(() => _imageUrlsByPostId[p.id] = urls);
+          setState(() => _mediaByPostId[p.id] = items);
         }
       } catch (_) {
-        if (mounted) setState(() => _imageUrlsByPostId[p.id] = <String>[]);
+        if (mounted) {
+          setState(() => _mediaByPostId[p.id] = <FeedPostMediaItem>[]);
+        }
       }
     }
   }
@@ -220,12 +166,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
     }
 
     try {
-      final int? categoryParam =
-          _quickFilter == _FeedQuickFilter.all ? _selectedCategoryId : null;
       final Response<dynamic> res = await _api.getFeedPosts(
         page: refresh ? 0 : _page,
         size: 12,
-        categoryId: categoryParam,
+        categoryId: null,
       );
       final dynamic data = res.data;
       if (data is! Map<String, dynamic>) {
@@ -245,7 +189,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
       setState(() {
         if (refresh) {
           _posts = chunk;
-          _imageUrlsByPostId.clear();
+          _mediaByPostId.clear();
           _dwellDone.clear();
           _feedTotalElements = totalElements;
           _page = 1;
@@ -255,7 +199,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
         }
         _hasMore = (refresh ? 1 : _page) < totalPages;
       });
-      await _hydrateImages(chunk);
+      await _hydrateMedia(chunk);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -379,39 +323,16 @@ class _CommunityScreenState extends State<CommunityScreen> {
       );
       return;
     }
-    final TextEditingController reason = TextEditingController();
-    final bool? ok = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext c) {
-        return AlertDialog(
-          title: const Text('Báo cáo bài viết'),
-          content: TextField(
-            controller: reason,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'Lý do...',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('Huỷ'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(c, true),
-              child: const Text('Gửi'),
-            ),
-          ],
-        );
-      },
-    );
-    final String r = reason.text.trim();
-    reason.dispose();
-    if (ok != true || !mounted) return;
-    if (r.isEmpty) {
+    final String? r = await showFeedPostFlagReasonBottomSheet(context);
+    if (r == null || r.isEmpty || !mounted) return;
+    final bool duplicated = await hasSubmittedFlag(_api, postId: post.id);
+    if (duplicated) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập lý do.')),
+        const SnackBar(
+          backgroundColor: Color(0xFFDC2626),
+          content: Text('Bạn đã tố cáo bài viết này rồi.'),
+        ),
       );
       return;
     }
@@ -422,10 +343,61 @@ class _CommunityScreenState extends State<CommunityScreen> {
           const SnackBar(content: Text('Đã gửi báo cáo. Cảm ơn bạn.')),
         );
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Color(0xFFDC2626),
+            content: Text(resolveFlagSubmitError(e)),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _editPost(FeedPostModel post) async {
+    await showCreateFeedPostSheet(
+      context,
+      existingPost: post,
+      onUpdated: () => _load(refresh: true),
+    );
+  }
+
+  Future<void> _deletePost(FeedPostModel post) async {
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext c) {
+        return AlertDialog(
+          title: const Text('Xóa bài viết?'),
+          content: const Text('Hành động này không hoàn tác.'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Huỷ'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Xóa'),
+            ),
+          ],
+        );
+      },
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _api.deleteFeedPost(post.id);
+      if (!mounted) return;
+      setState(() {
+        _posts.removeWhere((FeedPostModel e) => e.id == post.id);
+        _mediaByPostId.remove(post.id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đã xóa bài viết.')),
+      );
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Gửi báo cáo thất bại.')),
+          const SnackBar(content: Text('Không xóa được bài.')),
         );
       }
     }
@@ -518,24 +490,11 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 children: <Widget>[
                   _FilterPill(
                     label: 'Tất cả (${_feedTotalElements > 0 ? _feedTotalElements : _posts.length})',
-                    selected: _selectedCategoryId == null &&
-                        _quickFilter == _FeedQuickFilter.all,
+                    selected: _quickFilter == _FeedQuickFilter.all,
                     selectedBg: const Color(0xFF18181B),
                     selectedFg: Colors.white,
-                    onTap: () => _setCategoryAndReload(null),
+                    onTap: () => _setQuickFilterAndReload(_FeedQuickFilter.all),
                   ),
-                  for (final ForumCategoryModel c in _forumCategories)
-                    _FilterPill(
-                      label: '${c.name} (${c.postCount})',
-                      selected: _selectedCategoryId == c.id &&
-                          _quickFilter == _FeedQuickFilter.all,
-                      selectedBg:
-                          _parseHexColor(c.color) ?? const Color(0xFF6366F1),
-                      selectedFg: Colors.white,
-                      onTap: () => _setCategoryAndReload(
-                        _selectedCategoryId == c.id ? null : c.id,
-                      ),
-                    ),
                   _FilterPill(
                     label: 'Chưa xem',
                     selected: _quickFilter == _FeedQuickFilter.unseen,
@@ -597,20 +556,22 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         }
                         final FeedPostModel post = visible[i];
                         final int fullIdx = _indexInPostsList(post);
-                        final List<String> images =
-                            _imageUrlsByPostId[post.id] ?? <String>[];
+                        final List<FeedPostMediaItem> media =
+                            _mediaByPostId[post.id] ?? <FeedPostMediaItem>[];
+                        final int? uid = auth.user?.id;
                         return FeedDwellTracker(
                           visibilityKey: ValueKey<String>('dwell-${post.id}'),
                           dwell: const Duration(seconds: 3),
                           onDwell: () => _onDwellView(post.id),
                           child: _FeedPostCard(
                             post: post,
-                            imageUrls: images,
+                            media: media,
                             timeLabel: _timeAgo(post.updatedAt ?? post.createdAt),
                             textPreview: _stripHtml(post.content),
-                            categoryLabel: _categoryLabel(post),
-                            categoryColor: _categoryColorForPost(post),
+                            categoryLabel: null,
+                            categoryColor: null,
                             showHotBadge: _isHotPost(post),
+                            currentUserId: uid,
                             onOpen: () async {
                               await Navigator.push<void>(
                                 context,
@@ -628,6 +589,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                 : null,
                             onComment: () => _openComments(post),
                             onFlag: () => _flagPost(post),
+                            onEdit: uid != null && post.authorId == uid
+                                ? () => _editPost(post)
+                                : null,
+                            onDelete: uid != null && post.authorId == uid
+                                ? () => _deletePost(post)
+                                : null,
                           ),
                         );
                       },
@@ -691,29 +658,35 @@ class _FilterPill extends StatelessWidget {
 class _FeedPostCard extends StatelessWidget {
   const _FeedPostCard({
     required this.post,
-    required this.imageUrls,
+    required this.media,
     required this.timeLabel,
     required this.textPreview,
     this.categoryLabel,
     this.categoryColor,
     this.showHotBadge = false,
+    this.currentUserId,
     required this.onOpen,
     this.onLike,
     required this.onComment,
     required this.onFlag,
+    this.onEdit,
+    this.onDelete,
   });
 
   final FeedPostModel post;
-  final List<String> imageUrls;
+  final List<FeedPostMediaItem> media;
   final String timeLabel;
   final String textPreview;
   final String? categoryLabel;
   final Color? categoryColor;
   final bool showHotBadge;
+  final int? currentUserId;
   final VoidCallback onOpen;
   final VoidCallback? onLike;
   final VoidCallback onComment;
   final VoidCallback onFlag;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   static const Color _primary = Color(0xFFF84D43);
   static const Color _text = Color(0xFF111827);
@@ -881,14 +854,34 @@ class _FeedPostCard extends StatelessWidget {
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.more_horiz, color: _muted),
                   onSelected: (String value) {
-                    if (value == 'flag') onFlag();
+                    if (value == 'flag') {
+                      onFlag();
+                    } else if (value == 'edit') {
+                      onEdit?.call();
+                    } else if (value == 'delete') {
+                      onDelete?.call();
+                    }
                   },
-                  itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
-                    const PopupMenuItem<String>(
-                      value: 'flag',
-                      child: Text('Báo cáo bài viết'),
-                    ),
-                  ],
+                  itemBuilder: (BuildContext c) {
+                    final bool isOwner = currentUserId != null &&
+                        currentUserId == post.authorId;
+                    return <PopupMenuEntry<String>>[
+                      if (isOwner) ...<PopupMenuEntry<String>>[
+                        const PopupMenuItem<String>(
+                          value: 'edit',
+                          child: Text('Chỉnh sửa'),
+                        ),
+                        const PopupMenuItem<String>(
+                          value: 'delete',
+                          child: Text('Xóa'),
+                        ),
+                      ],
+                      const PopupMenuItem<String>(
+                        value: 'flag',
+                        child: Text('Báo cáo bài viết'),
+                      ),
+                    ];
+                  },
                 ),
               ],
             ),
@@ -919,24 +912,13 @@ class _FeedPostCard extends StatelessWidget {
                 ),
               ),
             ),
-          if (imageUrls.isNotEmpty)
+          if (media.isNotEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: AspectRatio(
-                  aspectRatio: 4 / 3,
-                  child: Image.network(
-                    imageUrls.first,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      color: const Color(0xFFE5E7EB),
-                      alignment: Alignment.center,
-                      child: const Icon(Icons.broken_image_outlined,
-                          color: _muted),
-                    ),
-                  ),
-                ),
+              child: FeedPostAttachmentsPreview(
+                media: media,
+                imageHeight: 160,
+                borderRadius: 16,
               ),
             ),
           Padding(

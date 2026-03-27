@@ -46,12 +46,15 @@ class _FeedCommentsPanelState extends State<FeedCommentsPanel> {
 
   final ApiService _api = ApiService();
   final TextEditingController _composer = TextEditingController();
+  TextEditingController? _editDraftController;
 
   List<FeedCommentModel> _roots = <FeedCommentModel>[];
   bool _loading = true;
   String? _error;
   bool _sending = false;
   int? _replyParentId;
+  int? _editingCommentId;
+  bool _savingEdit = false;
 
   @override
   void initState() {
@@ -61,6 +64,7 @@ class _FeedCommentsPanelState extends State<FeedCommentsPanel> {
 
   @override
   void dispose() {
+    _editDraftController?.dispose();
     _composer.dispose();
     super.dispose();
   }
@@ -217,12 +221,87 @@ class _FeedCommentsPanelState extends State<FeedCommentsPanel> {
     return out;
   }
 
+  void _cancelInlineEdit() {
+    if (!mounted) return;
+    setState(() {
+      _editingCommentId = null;
+      _editDraftController?.dispose();
+      _editDraftController = null;
+      _savingEdit = false;
+    });
+  }
+
+  void _beginInlineEdit(FeedCommentModel comment) {
+    _editDraftController?.dispose();
+    _editDraftController = TextEditingController(text: comment.content);
+    setState(() {
+      _editingCommentId = comment.id;
+      _replyParentId = null;
+    });
+  }
+
+  Future<void> _saveInlineEdit() async {
+    final int? id = _editingCommentId;
+    final TextEditingController? ctl = _editDraftController;
+    if (id == null || ctl == null || !mounted) return;
+    final String next = ctl.text.trim();
+    if (next.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nội dung không được để trống')),
+      );
+      return;
+    }
+    setState(() => _savingEdit = true);
+    try {
+      await _api.updateFeedPostComment(id, next);
+      if (!mounted) return;
+      setState(() {
+        _roots = _updateCommentInTree(
+          _roots,
+          id,
+          (FeedCommentModel c) {
+            return FeedCommentModel(
+              id: c.id,
+              postId: c.postId,
+              userId: c.userId,
+              parentCommentId: c.parentCommentId,
+              content: next,
+              likeCount: c.likeCount,
+              isLiked: c.isLiked,
+              authorName: c.authorName,
+              authorAvatar: c.authorAvatar,
+              createdAt: c.createdAt,
+              updatedAt: DateTime.now().toUtc().toIso8601String(),
+              replies: c.replies,
+            );
+          },
+        );
+        _editingCommentId = null;
+        _editDraftController?.dispose();
+        _editDraftController = null;
+        _savingEdit = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _savingEdit = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Lưu bình luận thất bại')),
+        );
+      }
+    }
+  }
+
   Future<void> _deleteComment(FeedCommentModel comment) async {
     final bool? ok = await showDialog<bool>(
       context: context,
       builder: (BuildContext c) {
         return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Text('Xóa bình luận?'),
+          content: const Text(
+            'Bình luận sẽ bị gỡ khỏi bài viết. Bạn có chắc chắn?',
+            style: TextStyle(fontSize: 14, height: 1.4, color: _muted),
+          ),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.pop(c, false),
@@ -241,6 +320,9 @@ class _FeedCommentsPanelState extends State<FeedCommentsPanel> {
     try {
       await _api.deleteFeedPostComment(comment.id);
       if (!mounted) return;
+      if (_editingCommentId == comment.id) {
+        _cancelInlineEdit();
+      }
       setState(() {
         _roots = _removeCommentFromTree(_roots, comment.id);
       });
@@ -249,69 +331,6 @@ class _FeedCommentsPanelState extends State<FeedCommentsPanel> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Xóa bình luận thất bại')),
-        );
-      }
-    }
-  }
-
-  Future<void> _editComment(FeedCommentModel comment) async {
-    final TextEditingController editCtl = TextEditingController(text: comment.content);
-    final bool? save = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext c) {
-        return AlertDialog(
-          title: const Text('Sửa bình luận'),
-          content: TextField(
-            controller: editCtl,
-            maxLines: 4,
-            decoration: const InputDecoration(border: OutlineInputBorder()),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('Huỷ'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(c, true),
-              child: const Text('Lưu'),
-            ),
-          ],
-        );
-      },
-    );
-    final String next = editCtl.text.trim();
-    editCtl.dispose();
-    if (save != true || next.isEmpty || !mounted) return;
-    try {
-      await _api.updateFeedPostComment(comment.id, next);
-      if (!mounted) return;
-      setState(() {
-        _roots = _updateCommentInTree(
-          _roots,
-          comment.id,
-          (FeedCommentModel c) {
-            final FeedCommentModel u = FeedCommentModel(
-              id: c.id,
-              postId: c.postId,
-              userId: c.userId,
-              parentCommentId: c.parentCommentId,
-              content: next,
-              likeCount: c.likeCount,
-              isLiked: c.isLiked,
-              authorName: c.authorName,
-              authorAvatar: c.authorAvatar,
-              createdAt: c.createdAt,
-              updatedAt: c.updatedAt,
-              replies: c.replies,
-            );
-            return u;
-          },
-        );
-      });
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Lưu bình luận thất bại')),
         );
       }
     }
@@ -419,6 +438,9 @@ class _FeedCommentsPanelState extends State<FeedCommentsPanel> {
                                     comment: _roots[i],
                                     depth: 0,
                                     currentUserId: widget.currentUserId,
+                                    editingCommentId: _editingCommentId,
+                                    editController: _editDraftController,
+                                    savingEdit: _savingEdit,
                                     timeLabel: feedCommentTimeLabel(
                                       _roots[i].updatedAt ??
                                           _roots[i].createdAt,
@@ -427,7 +449,9 @@ class _FeedCommentsPanelState extends State<FeedCommentsPanel> {
                                       setState(() => _replyParentId = id);
                                     },
                                     onToggleLike: _toggleCommentLike,
-                                    onEdit: _editComment,
+                                    onBeginEdit: _beginInlineEdit,
+                                    onCancelEdit: _cancelInlineEdit,
+                                    onSaveEdit: _saveInlineEdit,
                                     onDelete: _deleteComment,
                                   ),
                                   if (i < _roots.length - 1)
@@ -551,24 +575,35 @@ class _CommentThread extends StatelessWidget {
     required this.comment,
     required this.depth,
     required this.currentUserId,
+    required this.editingCommentId,
+    required this.editController,
+    required this.savingEdit,
     required this.timeLabel,
     required this.onReply,
     required this.onToggleLike,
-    required this.onEdit,
+    required this.onBeginEdit,
+    required this.onCancelEdit,
+    required this.onSaveEdit,
     required this.onDelete,
   });
 
   final FeedCommentModel comment;
   final int depth;
   final int? currentUserId;
+  final int? editingCommentId;
+  final TextEditingController? editController;
+  final bool savingEdit;
   final String timeLabel;
   final void Function(int parentId) onReply;
   final void Function(FeedCommentModel) onToggleLike;
-  final void Function(FeedCommentModel) onEdit;
+  final void Function(FeedCommentModel) onBeginEdit;
+  final VoidCallback onCancelEdit;
+  final VoidCallback onSaveEdit;
   final void Function(FeedCommentModel) onDelete;
 
   static const Color _muted = Color(0xFF6B7280);
   static const Color _primary = Color(0xFFF84D43);
+  static const Color _accentTeal = Color(0xFF1A685B);
 
   bool get _isOwn =>
       currentUserId != null && comment.userId == currentUserId;
@@ -579,6 +614,9 @@ class _CommentThread extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool isReply = depth > 0;
     final double branchLeft = isReply ? 10 + (depth - 1) * _indentPerLevel : 0;
+    final bool isEditing = editingCommentId != null &&
+        editingCommentId == comment.id &&
+        editController != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -662,91 +700,180 @@ class _CommentThread extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      comment.content,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        height: 1.35,
-                        color: Color(0xFF374151),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 12,
-                      runSpacing: 4,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: <Widget>[
-                        Text(
-                          timeLabel,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: _muted,
-                            fontWeight: FontWeight.w500,
+                    if (isEditing)
+                      Container(
+                        margin: const EdgeInsets.only(top: 2),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF9FAFB),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: const Color(0xFFE5E7EB),
                           ),
+                          boxShadow: <BoxShadow>[
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.02),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
-                        InkWell(
-                          onTap: () => onToggleLike(comment),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              Icon(
-                                comment.isLiked
-                                    ? Icons.favorite
-                                    : Icons.favorite_border,
-                                size: 18,
-                                color: comment.isLiked ? _primary : _muted,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            TextField(
+                              controller: editController,
+                              minLines: 3,
+                              maxLines: 10,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                height: 1.45,
+                                color: Color(0xFF1F2937),
                               ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '${comment.likeCount}',
-                                style: const TextStyle(
+                              decoration: const InputDecoration(
+                                isDense: true,
+                                border: InputBorder.none,
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: <Widget>[
+                                TextButton(
+                                  onPressed:
+                                      savingEdit ? null : onCancelEdit,
+                                  child: Text(
+                                    'Huỷ',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                FilledButton(
+                                  onPressed:
+                                      savingEdit ? null : onSaveEdit,
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: _accentTeal,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 10,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  child: savingEdit
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : const Text(
+                                          'Lưu',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      )
+                    else ...<Widget>[
+                      Text(
+                        comment.content,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          height: 1.35,
+                          color: Color(0xFF374151),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: <Widget>[
+                          Text(
+                            timeLabel,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: _muted,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          InkWell(
+                            onTap: () => onToggleLike(comment),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                Icon(
+                                  comment.isLiked
+                                      ? Icons.favorite
+                                      : Icons.favorite_border,
+                                  size: 18,
+                                  color:
+                                      comment.isLiked ? _primary : _muted,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${comment.likeCount}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: _muted,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (depth == 0)
+                            InkWell(
+                              onTap: () => onReply(comment.id),
+                              child: const Text(
+                                'Phản hồi',
+                                style: TextStyle(
                                   fontSize: 12,
-                                  color: _muted,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w700,
+                                  color: _accentTeal,
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
-                        if (depth == 0)
-                          InkWell(
-                            onTap: () => onReply(comment.id),
-                            child: const Text(
-                              'Phản hồi',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF1A685B),
+                            ),
+                          if (_isOwn) ...<Widget>[
+                            InkWell(
+                              onTap: () => onBeginEdit(comment),
+                              child: const Text(
+                                'Sửa',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF4B5563),
+                                ),
                               ),
                             ),
-                          ),
-                        if (_isOwn) ...<Widget>[
-                          InkWell(
-                            onTap: () => onEdit(comment),
-                            child: const Text(
-                              'Sửa',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF4B5563),
+                            InkWell(
+                              onTap: () => onDelete(comment),
+                              child: const Text(
+                                'Xóa',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: _primary,
+                                ),
                               ),
                             ),
-                          ),
-                          InkWell(
-                            onTap: () => onDelete(comment),
-                            child: const Text(
-                              'Xóa',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: _primary,
-                              ),
-                            ),
-                          ),
+                          ],
                         ],
-                      ],
-                    ),
-                   
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -769,12 +896,17 @@ class _CommentThread extends StatelessWidget {
                         comment: r,
                         depth: depth + 1,
                         currentUserId: currentUserId,
+                        editingCommentId: editingCommentId,
+                        editController: editController,
+                        savingEdit: savingEdit,
                         timeLabel: feedCommentTimeLabel(
                           r.updatedAt ?? r.createdAt,
                         ),
                         onReply: onReply,
                         onToggleLike: onToggleLike,
-                        onEdit: onEdit,
+                        onBeginEdit: onBeginEdit,
+                        onCancelEdit: onCancelEdit,
+                        onSaveEdit: onSaveEdit,
                         onDelete: onDelete,
                       ),
                     ),

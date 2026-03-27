@@ -10,6 +10,9 @@ import '../widgets/feed/create_feed_post_sheet.dart';
 import '../core/models/feed_post_model.dart';
 import 'feed_post_detail_screen.dart';
 import 'campaign_posts_screen.dart';
+import '../widgets/flags/flag_reason_sheet.dart';
+import '../core/utils/flag_error_resolver.dart';
+import '../core/utils/flag_duplicate_guard.dart';
 
 /// Màn chi tiết chiến dịch: số tiền đã quyên / mục tiêu / % và người ủng hộ gần đây (tương tự web campaigns-details).
 class CampaignDetailScreen extends StatefulWidget {
@@ -29,6 +32,9 @@ class CampaignDetailScreen extends StatefulWidget {
 class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
   final ApiService _api = ApiService();
 
+  /// Bản hiển thị (có thể được bổ sung từ API khi mở từ luồng chỉ có id + title, ví dụ màn Tác động).
+  late CampaignModel _campaign;
+
   CampaignProgressModel? _progress;
   List<RecentDonorModel> _donors = <RecentDonorModel>[];
   List<FeedPostModel> _posts = <FeedPostModel>[];
@@ -40,6 +46,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _campaign = widget.campaign;
     _progress = widget.initialProgress;
     _load();
     _loadPosts();
@@ -54,9 +61,23 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     }
 
     try {
+      CampaignModel campaign = _campaign;
+      final String? cover = campaign.coverImageUrl?.trim();
+      if (cover == null || cover.isEmpty) {
+        try {
+          final dynamic cRes = await _api.getCampaign(_campaign.id);
+          final dynamic raw = cRes.data;
+          if (raw is Map<String, dynamic>) {
+            campaign = CampaignModel.fromJson(raw);
+          }
+        } catch (_) {
+          // Giữ bản tối thiểu; ảnh bìa có thể vẫn trống nếu API lỗi.
+        }
+      }
+
       final List<dynamic> results = await Future.wait<dynamic>(<Future<dynamic>>[
-        _api.getCampaignProgress(widget.campaign.id),
-        _api.getRecentDonors(widget.campaign.id, limit: 10),
+        _api.getCampaignProgress(_campaign.id),
+        _api.getRecentDonors(_campaign.id, limit: 10),
       ]);
 
       final dynamic progRaw = results[0].data;
@@ -82,6 +103,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
 
       if (!mounted) return;
       setState(() {
+        _campaign = campaign;
         _progress = nextProgress;
         _donors = donors;
         _loading = false;
@@ -103,7 +125,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       final res = await _api.getFeedPosts(
         page: 0,
         size: 4,
-        campaignId: widget.campaign.id,
+        campaignId: _campaign.id,
       );
       final dynamic data = res.data;
       if (data is! Map<String, dynamic>) return;
@@ -112,6 +134,10 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       final List<FeedPostModel> list = content
           .whereType<Map<String, dynamic>>()
           .map(FeedPostModel.fromJson)
+          .where((FeedPostModel p) {
+            final String type = (p.targetType ?? '').toUpperCase();
+            return type == 'CAMPAIGN' && p.targetId == _campaign.id;
+          })
           .toList();
       if (!mounted) return;
       setState(() => _posts = list);
@@ -124,53 +150,34 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
   }
 
   Future<void> _flagCampaign() async {
-    final TextEditingController reason = TextEditingController();
-    final bool? ok = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext c) {
-        return AlertDialog(
-          title: const Text('Báo cáo chiến dịch'),
-          content: TextField(
-            controller: reason,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'Lý do...',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('Huỷ'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(c, true),
-              child: const Text('Gửi'),
-            ),
-          ],
-        );
-      },
-    );
-    final String r = reason.text.trim();
-    reason.dispose();
-    if (ok != true || !mounted) return;
-    if (r.isEmpty) {
+    final String? r = await showCampaignFlagReasonBottomSheet(context);
+    if (r == null || r.isEmpty || !mounted) return;
+    final bool duplicated =
+        await hasSubmittedFlag(_api, campaignId: _campaign.id);
+    if (duplicated) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập lý do.')),
+        const SnackBar(
+          backgroundColor: Color(0xFFDC2626),
+          content: Text('Bạn đã tố cáo chiến dịch này rồi.'),
+        ),
       );
       return;
     }
     try {
-      await _api.submitFlag(campaignId: widget.campaign.id, reason: r);
+      await _api.submitFlag(campaignId: _campaign.id, reason: r);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Đã gửi báo cáo. Cảm ơn bạn.')),
         );
       }
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Gửi báo cáo thất bại.')),
+          SnackBar(
+            backgroundColor: Color(0xFFDC2626),
+            content: Text(resolveFlagSubmitError(e)),
+          ),
         );
       }
     }
@@ -179,7 +186,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
   Future<void> _openDonate() async {
     final bool? shouldRefresh = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
-        builder: (_) => DonationScreen(campaign: widget.campaign),
+        builder: (_) => DonationScreen(campaign: _campaign),
       ),
     );
     if (shouldRefresh == true && mounted) {
@@ -256,8 +263,8 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
               onPressed: () {
                 showCreateFeedPostSheet(
                   context,
-                  linkedCampaignId: widget.campaign.id,
-                  linkedCampaignTitle: widget.campaign.title,
+                  linkedCampaignId: _campaign.id,
+                  linkedCampaignTitle: _campaign.title,
                   onCreated: () {
                     if (mounted) setState(() {});
                   },
@@ -271,10 +278,10 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                   context,
                   MaterialPageRoute(
                     builder: (_) => ChatScreen(
-                      campaignId: widget.campaign.id,
-                      campaignTitle: widget.campaign.title,
-                      staffId: widget.campaign.assignedStaffId,
-                      staffName: widget.campaign.assignedStaffName,
+                      campaignId: _campaign.id,
+                      campaignTitle: _campaign.title,
+                      staffId: _campaign.assignedStaffId,
+                      staffName: _campaign.assignedStaffName,
                     ),
                   ),
                 );
@@ -321,10 +328,10 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                       child: SizedBox(
                         height: 220,
                         width: double.infinity,
-                        child: widget.campaign.coverImageUrl != null &&
-                                widget.campaign.coverImageUrl!.isNotEmpty
+                        child: _campaign.coverImageUrl != null &&
+                                _campaign.coverImageUrl!.isNotEmpty
                             ? Image.network(
-                                widget.campaign.coverImageUrl!,
+                                _campaign.coverImageUrl!,
                                 fit: BoxFit.cover,
                                 errorBuilder:
                                     (BuildContext context, Object error, StackTrace? st) =>
@@ -339,7 +346,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
                           Text(
-                            widget.campaign.title,
+                            _campaign.title,
                             style: const TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.w800,
@@ -347,11 +354,11 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                               color: webTextDark,
                             ),
                           ),
-                          if ((widget.campaign.categoryName ?? '').isNotEmpty)
+                          if ((_campaign.categoryName ?? '').isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(top: 8),
                               child: Text(
-                                widget.campaign.categoryName!,
+                                _campaign.categoryName!,
                                 style: const TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
@@ -494,7 +501,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                               ),
                       ),
                     ),
-                    if (widget.campaign.description?.trim().isNotEmpty == true)
+                    if (_campaign.description?.trim().isNotEmpty == true)
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                         child: Container(
@@ -518,7 +525,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                               ),
                               const SizedBox(height: 10),
                               Text(
-                                widget.campaign.description!.trim(),
+                                _campaign.description!.trim(),
                                 style: const TextStyle(
                                   fontSize: 15,
                                   height: 1.5,
@@ -670,8 +677,8 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                                     await Navigator.of(context).push<void>(
                                       MaterialPageRoute<void>(
                                         builder: (_) => CampaignPostsScreen(
-                                          campaignId: widget.campaign.id,
-                                          campaignTitle: widget.campaign.title,
+                                          campaignId: _campaign.id,
+                                          campaignTitle: _campaign.title,
                                         ),
                                       ),
                                     );

@@ -5,10 +5,16 @@ import 'package:provider/provider.dart';
 
 import '../core/constants/api_constants.dart';
 import '../core/api/api_service.dart';
+import '../core/models/feed_post_media_model.dart';
 import '../core/models/feed_post_model.dart';
 import '../core/providers/auth_provider.dart';
+import '../widgets/feed/create_feed_post_sheet.dart';
 import '../widgets/feed/feed_comments_panel.dart';
 import '../widgets/feed/feed_dwell_tracker.dart';
+import '../widgets/feed/feed_post_attachments.dart';
+import '../widgets/flags/flag_reason_sheet.dart';
+import '../core/utils/flag_error_resolver.dart';
+import '../core/utils/flag_duplicate_guard.dart';
 
 /// Full post + inline comments (danbox `/post/[id]` parity).
 class FeedPostDetailScreen extends StatefulWidget {
@@ -27,7 +33,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
 
   final ApiService _api = ApiService();
   FeedPostModel? _post;
-  List<String> _imageUrls = <String>[];
+  List<FeedPostMediaItem> _media = <FeedPostMediaItem>[];
   bool _loading = true;
   String? _error;
   bool _dwellDone = false;
@@ -82,22 +88,15 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
         throw Exception('Dữ liệu không hợp lệ');
       }
       final FeedPostModel post = FeedPostModel.fromJson(data);
-      List<String> urls = <String>[];
+      List<FeedPostMediaItem> media = <FeedPostMediaItem>[];
       try {
         final Response<dynamic> m = await _api.getMediaByPostId(widget.postId);
-        final dynamic md = m.data;
-        if (md is List<dynamic>) {
-          for (final dynamic e in md) {
-            if (e is Map<String, dynamic> && e['url'] != null) {
-              urls.add(e['url'].toString());
-            }
-          }
-        }
+        media = parseFeedPostMediaResponse(m.data);
       } catch (_) {}
       if (!mounted) return;
       setState(() {
         _post = post;
-        _imageUrls = urls;
+        _media = media;
         _loading = false;
       });
     } catch (e) {
@@ -196,39 +195,16 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
       );
       return;
     }
-    final TextEditingController reason = TextEditingController();
-    final bool? ok = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext c) {
-        return AlertDialog(
-          title: const Text('Báo cáo bài viết'),
-          content: TextField(
-            controller: reason,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'Lý do...',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.pop(c, false),
-              child: const Text('Huỷ'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(c, true),
-              child: const Text('Gửi'),
-            ),
-          ],
-        );
-      },
-    );
-    final String r = reason.text.trim();
-    reason.dispose();
-    if (ok != true || !mounted) return;
-    if (r.isEmpty) {
+    final String? r = await showFeedPostFlagReasonBottomSheet(context);
+    if (r == null || r.isEmpty || !mounted) return;
+    final bool duplicated = await hasSubmittedFlag(_api, postId: p.id);
+    if (duplicated) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập lý do.')),
+        const SnackBar(
+          backgroundColor: Color(0xFFDC2626),
+          content: Text('Bạn đã tố cáo bài viết này rồi.'),
+        ),
       );
       return;
     }
@@ -239,10 +215,62 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
           const SnackBar(content: Text('Đã gửi báo cáo. Cảm ơn bạn.')),
         );
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Color(0xFFDC2626),
+            content: Text(resolveFlagSubmitError(e)),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _editPost() async {
+    final FeedPostModel? p = _post;
+    if (p == null) return;
+    await showCreateFeedPostSheet(
+      context,
+      existingPost: p,
+      onUpdated: () => _load(),
+    );
+  }
+
+  Future<void> _deletePost() async {
+    final FeedPostModel? p = _post;
+    if (p == null) return;
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext c) {
+        return AlertDialog(
+          title: const Text('Xóa bài viết?'),
+          content: const Text('Hành động này không hoàn tác.'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Huỷ'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Xóa'),
+            ),
+          ],
+        );
+      },
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _api.deleteFeedPost(p.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đã xóa bài viết.')),
+      );
+      Navigator.of(context).pop();
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Gửi báo cáo thất bại.')),
+          const SnackBar(content: Text('Không xóa được bài.')),
         );
       }
     }
@@ -251,6 +279,8 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final AuthProvider auth = context.watch<AuthProvider>();
+    final bool isOwner =
+        auth.user != null && _post != null && auth.user!.id == _post!.authorId;
 
     final Widget body = _loading
         ? const Center(child: CircularProgressIndicator())
@@ -409,25 +439,12 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                       color: Color(0xFF374151),
                                     ),
                                   ),
-                                  if (_imageUrls.isNotEmpty) ...<Widget>[
+                                  if (_media.isNotEmpty) ...<Widget>[
                                     const SizedBox(height: 16),
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(14),
-                                      child: AspectRatio(
-                                        aspectRatio: 4 / 3,
-                                        child: Image.network(
-                                          _imageUrls.first,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) => Container(
-                                            color: const Color(0xFFE5E7EB),
-                                            alignment: Alignment.center,
-                                            child: const Icon(
-                                              Icons.broken_image_outlined,
-                                              color: _muted,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
+                                    FeedPostAttachmentsPreview(
+                                      media: _media,
+                                      imageHeight: 220,
+                                      borderRadius: 14,
                                     ),
                                   ],
                                   const Padding(
@@ -586,6 +603,25 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: _text,
+        actions: <Widget>[
+          if (isOwner && !_loading && _post != null)
+            PopupMenuButton<String>(
+              onSelected: (String v) {
+                if (v == 'edit') _editPost();
+                if (v == 'delete') _deletePost();
+              },
+              itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
+                const PopupMenuItem<String>(
+                  value: 'edit',
+                  child: Text('Chỉnh sửa'),
+                ),
+                const PopupMenuItem<String>(
+                  value: 'delete',
+                  child: Text('Xóa'),
+                ),
+              ],
+            ),
+        ],
       ),
       body: body,
     );

@@ -5,7 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import '../core/utils/image_cropper_helper.dart';
 import '../core/providers/auth_provider.dart';
 import 'email_verification_screen.dart';
-import 'feature_hub_placeholder_screen.dart';
+import 'impact_screen.dart';
 import 'login_screen.dart';
 import 'my_campaigns_screen.dart';
 import 'chat_list_screen.dart';
@@ -21,6 +21,7 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _isEditing = false;
+  String? _lastPrecachedAvatarUrl;
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   
@@ -57,6 +58,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _accountNumberController.text = bank.accountNumber;
         _accountHolderController.text = bank.accountHolderName;
       }
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final String? url = authProvider.user?.avatarUrl;
+    if (url == null || url.isEmpty) return;
+    if (_lastPrecachedAvatarUrl == url) return;
+    _lastPrecachedAvatarUrl = url;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      try {
+        await precacheImage(NetworkImage(url), context);
+      } catch (_) {}
     });
   }
 
@@ -409,11 +426,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _buildQuickAction(
                     icon: Icons.favorite_outline,
                     title: "Tác động",
-                    onTap: () => _openFeaturePlaceholder(
-                      title: "Tác động",
-                      description: "Tính năng Tác động sẽ sớm ra mắt để bạn theo dõi đóng góp của mình.",
-                      icon: Icons.favorite_outline,
-                    ),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const ImpactScreen()),
+                      );
+                    },
                   ),
                   _buildQuickAction(
                     icon: Icons.chat_bubble_outline,
@@ -450,12 +467,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   _buildQuickAction(
                     icon: Icons.flag_outlined,
-                    title: "Báo cáo",
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const MyFlagsScreen()),
-                      );
-                    },
+                    title: "Tố cáo của tôi",
+                    onTap: () => showMyFlagsBottomSheet(context),
                   ),
                 ],
               ),
@@ -695,22 +708,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  void _openFeaturePlaceholder({
-    required String title,
-    required String description,
-    required IconData icon,
-  }) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => FeatureHubPlaceholderScreen(
-          title: title,
-          description: description,
-          icon: icon,
-        ),
       ),
     );
   }
