@@ -35,6 +35,73 @@ class FeedPostAttachmentsPreview extends StatelessWidget {
     }
   }
 
+  void _openImageViewer(
+    BuildContext context, {
+    required List<FeedPostMediaItem> images,
+    required int initialIndex,
+  }) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (BuildContext dialogContext) {
+        final PageController pageController = PageController(initialPage: initialIndex);
+        int currentIndex = initialIndex;
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Scaffold(
+              backgroundColor: Colors.black,
+              appBar: AppBar(
+                backgroundColor: Colors.black,
+                elevation: 0,
+                leading: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                ),
+                title: Text(
+                  '${currentIndex + 1}/${images.length}',
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                ),
+                centerTitle: true,
+              ),
+              body: PageView.builder(
+                controller: pageController,
+                itemCount: images.length,
+                onPageChanged: (int index) {
+                  setModalState(() => currentIndex = index);
+                },
+                itemBuilder: (_, int index) {
+                  return InteractiveViewer(
+                    minScale: 1,
+                    maxScale: 4,
+                    child: Center(
+                      child: Image.network(
+                        images[index].url,
+                        fit: BoxFit.contain,
+                        loadingBuilder: (_, Widget child, ImageChunkEvent? progress) {
+                          if (progress == null) return child;
+                          return const Center(
+                            child: CircularProgressIndicator(color: Colors.white),
+                          );
+                        },
+                        errorBuilder: (_, __, ___) => const Center(
+                          child: Icon(
+                            Icons.broken_image_outlined,
+                            color: Colors.white70,
+                            size: 42,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (media.isEmpty) return const SizedBox.shrink();
@@ -54,25 +121,41 @@ class FeedPostAttachmentsPreview extends StatelessWidget {
                 final FeedPostMediaItem m = _images[i];
                 return Padding(
                   padding: EdgeInsets.only(right: i < _images.length - 1 ? 8 : 0),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(borderRadius),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: <Widget>[
-                        Image.network(
-                          m.url,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(
-                            color: const Color(0xFFE5E7EB),
-                            alignment: Alignment.center,
-                            child: const Icon(Icons.broken_image_outlined, color: _muted),
+                  child: GestureDetector(
+                    onTap: () {
+                      if (m.isVideo) {
+                        _openUrl(context, m.url);
+                        return;
+                      }
+                      _openImageViewer(
+                        context,
+                        images: _images.where((FeedPostMediaItem item) => !item.isVideo).toList(),
+                        initialIndex: _images
+                            .where((FeedPostMediaItem item) => !item.isVideo)
+                            .toList()
+                            .indexWhere((FeedPostMediaItem item) => item.url == m.url),
+                      );
+                    },
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(borderRadius),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: <Widget>[
+                          Image.network(
+                            m.url,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              color: const Color(0xFFE5E7EB),
+                              alignment: Alignment.center,
+                              child: const Icon(Icons.broken_image_outlined, color: _muted),
+                            ),
                           ),
-                        ),
-                        if (m.isVideo)
-                          const Center(
-                            child: Icon(Icons.play_circle_fill, size: 48, color: Colors.white70),
-                          ),
-                      ],
+                          if (m.isVideo)
+                            const Center(
+                              child: Icon(Icons.play_circle_fill, size: 48, color: Colors.white70),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 );

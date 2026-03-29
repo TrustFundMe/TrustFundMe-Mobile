@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:dio/dio.dart';
 
 import '../core/api/api_service.dart';
 import '../core/models/campaign_model.dart';
@@ -124,23 +125,53 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     try {
       final res = await _api.getFeedPosts(
         page: 0,
-        size: 4,
+        size: 12,
         campaignId: _campaign.id,
       );
       final dynamic data = res.data;
       if (data is! Map<String, dynamic>) return;
       final List<dynamic> content =
           data['content'] as List<dynamic>? ?? <dynamic>[];
+      final Response<dynamic> expRes =
+          await _api.getExpendituresByCampaign(_campaign.id);
+      final Set<int> expenditureIds = <int>{};
+      if (expRes.data is List<dynamic>) {
+        for (final dynamic row in (expRes.data as List<dynamic>)) {
+          if (row is Map<String, dynamic>) {
+            final dynamic rawId = row['id'];
+            final int? id = rawId is int
+                ? rawId
+                : int.tryParse(rawId?.toString() ?? '');
+            if (id != null) expenditureIds.add(id);
+          }
+        }
+      }
       final List<FeedPostModel> list = content
           .whereType<Map<String, dynamic>>()
           .map(FeedPostModel.fromJson)
           .where((FeedPostModel p) {
             final String type = (p.targetType ?? '').toUpperCase();
-            return type == 'CAMPAIGN' && p.targetId == _campaign.id;
+            if (type == 'CAMPAIGN') {
+              return p.targetId == _campaign.id;
+            }
+            if (type == 'EXPENDITURE') {
+              return p.targetId != null && expenditureIds.contains(p.targetId);
+            }
+            return false;
           })
-          .toList();
+          .toList()
+        ..sort((FeedPostModel a, FeedPostModel b) {
+          final DateTime ta =
+              DateTime.tryParse((a.updatedAt ?? a.createdAt).replaceFirst(' ', 'T')) ??
+                  DateTime.fromMillisecondsSinceEpoch(0);
+          final DateTime tb =
+              DateTime.tryParse((b.updatedAt ?? b.createdAt).replaceFirst(' ', 'T')) ??
+                  DateTime.fromMillisecondsSinceEpoch(0);
+          return tb.compareTo(ta);
+        });
+      final List<FeedPostModel> top = list.take(4).toList();
       if (!mounted) return;
-      setState(() => _posts = list);
+      setState(() => _posts = top);
     } catch (_) {
       if (!mounted) return;
       setState(() => _posts = <FeedPostModel>[]);

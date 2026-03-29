@@ -96,11 +96,12 @@ class FeedPostTargetPill extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final bool isCampaign = tt == 'CAMPAIGN';
-    final String suffix = (post.targetName ?? '').trim().isEmpty
-        ? (isCampaign ? 'Chiến dịch #$tid' : 'Đợt chi #$tid')
-        : post.targetName!.trim();
-    final String label =
-        isCampaign ? 'Chiến dịch: $suffix' : 'Đợt chi: $suffix';
+    final String rawName = (post.targetName ?? '').trim();
+    final String label = isCampaign
+        ? (rawName.isEmpty
+            ? 'Chiến dịch #$tid'
+            : 'Chiến dịch #$tid - $rawName')
+        : (rawName.isEmpty ? 'Đợt chi #$tid' : 'Đợt chi #$tid - $rawName');
 
     return Padding(
       padding: const EdgeInsets.only(top: 8),

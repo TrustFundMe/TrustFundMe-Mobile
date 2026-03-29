@@ -1,9 +1,13 @@
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import '../core/api/api_service.dart';
+import '../core/models/feed_post_media_model.dart';
+import '../core/providers/auth_provider.dart';
 
 class ExpenditureDetailScreen extends StatefulWidget {
   final Map<String, dynamic> expenditure;
@@ -30,6 +34,8 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
   bool _isSubmittingEvidence = false;
   late Map<String, dynamic> _expenditure;
   List<dynamic> _items = [];
+  List<String> _evidencePreviewUrls = <String>[];
+  int? _campaignOwnerId;
   final List<XFile> _evidenceImages = <XFile>[];
   final TextEditingController _evidenceNoteCtrl = TextEditingController();
 
@@ -46,6 +52,8 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
     super.initState();
     _expenditure = widget.expenditure;
     _loadItems();
+    _loadCampaignOwner();
+    _loadEvidencePreview();
   }
 
   @override
@@ -91,6 +99,64 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
     } catch (e) {
       debugPrint('Refresh error: $e');
     }
+  }
+
+  bool get _canManageEvidence {
+    final int? me = context.read<AuthProvider>().user?.id;
+    return me != null && _campaignOwnerId != null && me == _campaignOwnerId;
+  }
+
+  Future<void> _loadCampaignOwner() async {
+    try {
+      final int campaignId = _expenditure['campaignId'] as int;
+      final Response<dynamic> r = await _api.getCampaign(campaignId);
+      final dynamic data = r.data;
+      if (data is! Map<String, dynamic>) return;
+      final dynamic rawOwner = data['fundOwnerId'];
+      final int? ownerId = rawOwner is int
+          ? rawOwner
+          : int.tryParse(rawOwner?.toString() ?? '');
+      if (!mounted) return;
+      setState(() => _campaignOwnerId = ownerId);
+    } catch (_) {}
+  }
+
+  Future<void> _loadEvidencePreview() async {
+    try {
+      final int campaignId = _expenditure['campaignId'] as int;
+      final int expenditureId = _expenditure['id'] as int;
+      final Response<dynamic> postsRes = await _api.getFeedPosts(
+        page: 0,
+        size: 20,
+        campaignId: campaignId,
+      );
+      final dynamic payload = postsRes.data;
+      if (payload is! Map<String, dynamic>) return;
+      final List<dynamic> rows =
+          payload['content'] as List<dynamic>? ?? <dynamic>[];
+      final List<Map<String, dynamic>> matches = rows
+          .whereType<Map<String, dynamic>>()
+          .where((Map<String, dynamic> p) {
+            final String tt = (p['targetType'] ?? '').toString().toUpperCase();
+            final int? tid = (p['targetId'] as num?)?.toInt();
+            return tt == 'EXPENDITURE' && tid == expenditureId;
+          })
+          .toList();
+      if (matches.isEmpty) {
+        if (!mounted) return;
+        setState(() => _evidencePreviewUrls = <String>[]);
+        return;
+      }
+      final int postId = (matches.first['id'] as num).toInt();
+      final Response<dynamic> mediaRes = await _api.getMediaByPostId(postId);
+      final List<FeedPostMediaItem> media = parseFeedPostMediaResponse(mediaRes.data);
+      final List<String> urls = media
+          .where((FeedPostMediaItem m) => m.isPhoto && m.url.isNotEmpty)
+          .map((FeedPostMediaItem m) => m.url)
+          .toList();
+      if (!mounted) return;
+      setState(() => _evidencePreviewUrls = urls);
+    } catch (_) {}
   }
 
   int get _currentStep {
@@ -149,13 +215,29 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
 
     setState(() => _isSubmittingEvidence = true);
     try {
-      int failUploads = 0;
       final String note = _evidenceNoteCtrl.text.trim();
+      final Response<dynamic> postRes = await _api.createFeedPost(<String, dynamic>{
+        'type': 'UPDATE',
+        'visibility': 'PUBLIC',
+        'title': 'Cập nhật minh chứng chi tiêu',
+        'content': note.isEmpty
+            ? 'Tôi vừa cập nhật minh chứng cho hoạt động chi tiêu. Mời mọi người cùng theo dõi.'
+            : note,
+        'status': 'PUBLISHED',
+        'targetId': expenditureId,
+        'targetType': 'EXPENDITURE',
+      });
+      final dynamic postData = postRes.data;
+      final int? postId = postData is Map<String, dynamic>
+          ? (postData['id'] as num?)?.toInt()
+          : null;
 
+      int failUploads = 0;
       for (final XFile x in _evidenceImages) {
         try {
           await _api.uploadMedia(
             File(x.path),
+            postId: postId,
             campaignId: campaignId,
             expenditureId: expenditureId,
             mediaType: 'PHOTO',
@@ -168,20 +250,9 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
         }
       }
 
-      await _api.createFeedPost(<String, dynamic>{
-        'type': 'UPDATE',
-        'visibility': 'PUBLIC',
-        'title': 'Cập nhật minh chứng chi tiêu',
-        'content': note.isEmpty
-            ? 'Tôi vừa cập nhật minh chứng cho hoạt động chi tiêu. Mời mọi người cùng theo dõi.'
-            : note,
-        'status': 'PUBLISHED',
-        'targetId': expenditureId,
-        'targetType': 'EXPENDITURE',
-      });
-
       await _api.updateEvidenceStatus(expenditureId, 'SUBMITTED');
       await _refreshExpenditure();
+      await _loadEvidencePreview();
 
       if (!mounted) return;
       setState(() {
@@ -437,7 +508,14 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
               'Hạn nộp hóa đơn: ${DateFormat('dd/MM/yyyy').format(DateTime.parse(_expenditure['evidenceDueAt']))}',
             ),
           const SizedBox(height: 16),
-          _buildEvidenceComposer(),
+          if (_evidencePreviewUrls.isNotEmpty) ...<Widget>[
+            _buildEvidenceGallery(),
+            const SizedBox(height: 16),
+          ],
+          if (_canManageEvidence)
+            _buildEvidenceComposer()
+          else
+            _infoBox('Bạn chỉ có quyền xem minh chứng. Chỉ chủ chiến dịch mới được nộp.'),
           const SizedBox(height: 32),
         ]);
       default:
@@ -726,6 +804,113 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildEvidenceGallery() {
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            'Ảnh minh chứng',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 110,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _evidencePreviewUrls.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, int i) {
+                return GestureDetector(
+                  onTap: () => _openEvidenceViewer(i),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.network(
+                      _evidencePreviewUrls[i],
+                      width: 110,
+                      height: 110,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        width: 110,
+                        height: 110,
+                        color: const Color(0xFFF3F4F6),
+                        alignment: Alignment.center,
+                        child: const Icon(Icons.broken_image_outlined, color: Color(0xFF9CA3AF)),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openEvidenceViewer(int initialIndex) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (BuildContext dialogContext) {
+        final PageController pageController = PageController(initialPage: initialIndex);
+        int currentIndex = initialIndex;
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Scaffold(
+              backgroundColor: Colors.black,
+              appBar: AppBar(
+                backgroundColor: Colors.black,
+                elevation: 0,
+                leading: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                ),
+                title: Text(
+                  '${currentIndex + 1}/${_evidencePreviewUrls.length}',
+                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                ),
+                centerTitle: true,
+              ),
+              body: PageView.builder(
+                controller: pageController,
+                itemCount: _evidencePreviewUrls.length,
+                onPageChanged: (int index) {
+                  setModalState(() => currentIndex = index);
+                },
+                itemBuilder: (_, int index) {
+                  return InteractiveViewer(
+                    minScale: 1,
+                    maxScale: 4,
+                    child: Center(
+                      child: Image.network(
+                        _evidencePreviewUrls[index],
+                        fit: BoxFit.contain,
+                        loadingBuilder: (_, Widget child, ImageChunkEvent? progress) {
+                          if (progress == null) return child;
+                          return const Center(
+                            child: CircularProgressIndicator(color: Colors.white),
+                          );
+                        },
+                        errorBuilder: (_, __, ___) => const Center(
+                          child: Icon(
+                            Icons.broken_image_outlined,
+                            color: Colors.white70,
+                            size: 42,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
