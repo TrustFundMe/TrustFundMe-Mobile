@@ -810,21 +810,32 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
   InputDecoration _fieldDecoration(String label, {String? hint}) {
     return InputDecoration(
       labelText: label,
+      labelStyle: const TextStyle(
+        color: Color(0xFF6B7280),
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+      ),
       hintText: hint,
+      hintStyle: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 14),
       filled: true,
-      fillColor: _sheetFill,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      fillColor: const Color(0xFFF9FAFB),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: _sheetBorder),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: _sheetBorder),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: _primary, width: 1.4),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: _primary, width: 1.5),
+      ),
+      floatingLabelStyle: const TextStyle(
+        color: _primary,
+        fontWeight: FontWeight.w600,
+        fontSize: 12,
       ),
     );
   }
@@ -838,17 +849,17 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
       label: Text(label),
       selected: selected,
       showCheckmark: false,
-      selectedColor: const Color(0xFFDCEEFE),
+      selectedColor: const Color(0xFFEFF6FF),
       backgroundColor: Colors.white,
       side: BorderSide(
-        color: selected ? const Color(0xFF7DD3FC) : _sheetBorder,
+        color: selected ? const Color(0xFFBFDBFE) : const Color(0xFFE5E7EB),
       ),
       labelStyle: TextStyle(
         fontWeight: FontWeight.w700,
         fontSize: 13,
-        color: selected ? const Color(0xFF0369A1) : const Color(0xFF374151),
+        color: selected ? const Color(0xFF1E40AF) : const Color(0xFF4B5563),
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       onSelected: onSelected,
     );
   }
@@ -902,37 +913,48 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
     return Scaffold(
       backgroundColor: Colors.white,
       resizeToAvoidBottomInset: true,
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(84),
+        child: Container(
+          padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 8),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(
+              bottom: BorderSide(color: Color(0xFFF3F4F6), width: 1),
+            ),
+          ),
+          child: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            foregroundColor: const Color(0xFF111827),
+            centerTitle: true,
+            automaticallyImplyLeading: false,
+            title: Text(
+              _isEdit ? 'Chỉnh sửa bài viết' : 'Đăng bài lên feed',
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.3,
+              ),
+            ),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
+        ),
+      ),
       body: Padding(
         padding: EdgeInsets.only(
           left: 20,
           right: 20,
-          top: 14,
+          top: 20,
           bottom: bottomInset + 20,
         ),
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-            Center(
-              child: Container(
-                width: 46,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD1D5DB),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              _isEdit ? 'Chỉnh sửa bài viết' : 'Đăng bài lên feed',
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF111827),
-              ),
-            ),
-            const SizedBox(height: 16),
             Text(
               'Gắn mục tiêu',
               style: TextStyle(
@@ -960,9 +982,9 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
             else
               DecoratedBox(
                 decoration: BoxDecoration(
-                  color: _sheetFill,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _sheetBorder),
+                  color: const Color(0xFFF9FAFB),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFF3F4F6)),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(10),
@@ -1232,10 +1254,14 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
                     label: Text('Ảnh (${_pickedImages.length})'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFF374151),
-                      side: const BorderSide(color: _sheetBorder),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      side: const BorderSide(color: Color(0xFFE5E7EB)),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -1248,10 +1274,14 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
                     label: Text('Tệp (${_pickedFiles.length})'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFF374151),
-                      side: const BorderSide(color: _sheetBorder),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      side: const BorderSide(color: Color(0xFFE5E7EB)),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -1333,14 +1363,18 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
                       ),
                     )
                   : Text(
-                      _isEdit ? 'Lưu thay đổi' : 'Đăng bài',
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                      _isEdit ? 'Lưu thay đổi' : 'Đăng bài ngay',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        letterSpacing: -0.2,
+                      ),
                     ),
             ),
           ],
         ),
       ),
     ),
-    );
-  }
+  );
+}
 }

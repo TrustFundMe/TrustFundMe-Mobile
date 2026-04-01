@@ -1307,26 +1307,55 @@ class _CreateCampaignScreenState extends State<CreateCampaignScreen> {
     );
   }
 
+  static const int _maxImages = 5;
+
+  Future<void> _pickAndProcessImages() async {
+    final int remaining = _maxImages - _attachments.length;
+    if (remaining <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Tối đa $_maxImages ảnh. Xóa bớt để thêm ảnh mới.")),
+      );
+      return;
+    }
+
+    List<XFile> picked = [];
+    try {
+      picked = await _picker.pickMultiImage(limit: remaining);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Không thể mở thư viện ảnh. Thử lại.")),
+      );
+      return;
+    }
+
+    if (picked.isEmpty) return;
+
+    final List<XFile> processed = <XFile>[];
+    for (final XFile file in picked) {
+      try {
+        final String? croppedPath = await ImageCropperHelper.cropCampaignImage(file.path);
+        // If user cancels cropping (croppedPath == null), still add original
+        processed.add(XFile(croppedPath ?? file.path));
+      } catch (e) {
+        debugPrint("Lỗi crop ảnh: $e");
+        // On crop error, add original image instead of crashing
+        processed.add(file);
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _attachments.addAll(processed);
+      _coverIndex ??= 0;
+    });
+  }
+
   Widget _buildMediaManager() {
     return Column(
       children: [
         GestureDetector(
-          onTap: () async {
-            final List<XFile> picked = await _picker.pickMultiImage();
-            if (picked.isNotEmpty) {
-              final List<XFile> processed = <XFile>[];
-              for (final XFile file in picked) {
-                final String finalPath =
-                    await ImageCropperHelper.cropCampaignImage(file.path) ??
-                        file.path;
-                processed.add(XFile(finalPath));
-              }
-              setState(() {
-                _attachments.addAll(processed);
-                _coverIndex ??= 0;
-              });
-            }
-          },
+          onTap: _pickAndProcessImages,
           child: Container(
             padding: const EdgeInsets.all(32),
             width: double.infinity,
@@ -1339,8 +1368,8 @@ class _CreateCampaignScreenState extends State<CreateCampaignScreen> {
               children: [
                 Icon(Icons.image_outlined, size: 48, color: Colors.grey[300]),
                 const SizedBox(height: 12),
-                const Text("Tải ảnh hoặc video lên", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                const Text("Nhấn sao để chọn ảnh bìa", style: TextStyle(fontSize: 10, color: Colors.redAccent)),
+                const Text("Tải ảnh lên", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                Text("${_attachments.length}/$_maxImages ảnh • Nhấn ★ để chọn ảnh bìa", style: const TextStyle(fontSize: 10, color: Colors.redAccent)),
               ],
             ),
           ),
@@ -1359,7 +1388,17 @@ class _CreateCampaignScreenState extends State<CreateCampaignScreen> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.file(File(_attachments[index].path), width: 50, height: 50, fit: BoxFit.cover),
+                        child: Image.file(
+                          File(_attachments[index].path),
+                          width: 50,
+                          height: 50,
+                          fit: BoxFit.cover,
+                          errorBuilder: (ctx, e, st) => Container(
+                            width: 50, height: 50,
+                            color: Colors.grey[200],
+                            child: const Icon(Icons.broken_image_outlined, color: Colors.grey, size: 24),
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
