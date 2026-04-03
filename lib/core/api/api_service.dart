@@ -89,6 +89,23 @@ class ApiService {
     );
   }
 
+  Future<Response<dynamic>> getMyFeedPosts({
+    String status = 'ALL',
+    int page = 0,
+    int size = 20,
+    String sort = 'updatedAt,desc',
+  }) async {
+    return _dio.get(
+      '${ApiConfig.campaignUrl}/feed-posts/my',
+      queryParameters: <String, dynamic>{
+        'status': status,
+        'page': page,
+        'size': size,
+        'sort': sort,
+      },
+    );
+  }
+
   /// Forum / feed topic categories (same contract as danbox `GET /api/forum/categories`).
   Future<Response<dynamic>> getForumCategories() async {
     return _dio.get('${ApiConfig.campaignUrl}/forum/categories');

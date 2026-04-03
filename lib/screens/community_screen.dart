@@ -8,6 +8,7 @@ import '../core/models/feed_post_media_model.dart';
 import '../core/models/feed_post_model.dart';
 import '../core/providers/auth_provider.dart';
 import 'feed_post_detail_screen.dart';
+import 'my_feed_screen.dart';
 import '../widgets/feed/create_feed_post_sheet.dart';
 import '../widgets/feed/feed_comments_sheet.dart';
 import '../widgets/feed/feed_dwell_tracker.dart';
@@ -451,6 +452,24 @@ class _CommunityScreenState extends State<CommunityScreen> {
         backgroundColor: Colors.white,
         foregroundColor: _text,
         actions: <Widget>[
+          IconButton(
+            tooltip: 'Bai cua toi',
+            onPressed: auth.isLoggedIn
+                ? () {
+                    Navigator.push<void>(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const MyFeedScreen(),
+                      ),
+                    );
+                  }
+                : () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Dang nhap de xem bai cua toi.')),
+                    );
+                  },
+            icon: const Icon(Icons.article_outlined),
+          ),
           IconButton(
             tooltip: 'Đăng bài',
             onPressed: auth.isLoggedIn
