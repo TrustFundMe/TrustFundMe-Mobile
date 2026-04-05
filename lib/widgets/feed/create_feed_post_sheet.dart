@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -41,17 +42,27 @@ Future<void> showCreateFeedPostSheet(
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     backgroundColor: Colors.white,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
     ),
     builder: (BuildContext ctx) {
-      return _CreateFeedPostBody(
-        linkedCampaignId: linkedCampaignId,
-        linkedCampaignTitle: linkedCampaignTitle,
-        existingPost: existingPost,
-        onCreated: onCreated,
-        onUpdated: onUpdated,
+      return AnnotatedRegion<SystemUiOverlayStyle>(
+        value: const SystemUiOverlayStyle(
+          statusBarColor: Color(0xFF424242),
+          statusBarBrightness: Brightness.dark,
+          statusBarIconBrightness: Brightness.light,
+          systemNavigationBarColor: Colors.white,
+          systemNavigationBarIconBrightness: Brightness.dark,
+        ),
+        child: _CreateFeedPostBody(
+          linkedCampaignId: linkedCampaignId,
+          linkedCampaignTitle: linkedCampaignTitle,
+          existingPost: existingPost,
+          onCreated: onCreated,
+          onUpdated: onUpdated,
+        ),
       );
     },
   );
@@ -908,49 +919,51 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
   @override
   Widget build(BuildContext context) {
     final AuthProvider auth = context.watch<AuthProvider>();
-    final double bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final MediaQueryData mq = MediaQuery.of(context);
+    final double bottomInset = mq.viewInsets.bottom;
+    final double bottomSafe = mq.viewPadding.bottom;
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      resizeToAvoidBottomInset: true,
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(84),
-        child: Container(
-          padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 8),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            border: Border(
-              bottom: BorderSide(color: Color(0xFFF3F4F6), width: 1),
-            ),
-          ),
-          child: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            foregroundColor: const Color(0xFF111827),
-            centerTitle: true,
-            automaticallyImplyLeading: false,
-            title: Text(
-              _isEdit ? 'Chỉnh sửa bài viết' : 'Đăng bài lên feed',
-              style: const TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.3,
+        backgroundColor: Colors.white,
+        resizeToAvoidBottomInset: true,
+        appBar: PreferredSize(
+          preferredSize: Size.fromHeight(8 + kToolbarHeight),
+          child: Container(
+            padding: const EdgeInsets.only(top: 8),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFF3F4F6), width: 1),
               ),
             ),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-              onPressed: () => Navigator.of(context).pop(),
+            child: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              foregroundColor: const Color(0xFF111827),
+              centerTitle: true,
+              automaticallyImplyLeading: false,
+              title: Text(
+                _isEdit ? 'Chỉnh sửa bài viết' : 'Đăng bài lên feed',
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.3,
+                ),
+              ),
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
             ),
           ),
         ),
-      ),
-      body: Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 20,
-          bottom: bottomInset + 20,
-        ),
+        body: Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: bottomInset + bottomSafe + 20,
+          ),
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -11,6 +11,7 @@ import 'my_campaigns_screen.dart';
 import 'chat_list_screen.dart';
 import 'appointment_schedule_screen.dart';
 import 'my_flags_screen.dart';
+import 'my_feed_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -452,6 +453,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (_) => const MyCampaignsScreen()),
+                      );
+                    },
+                  ),
+                  _buildQuickAction(
+                    icon: Icons.article_outlined,
+                    title: "Bài viết của tôi",
+                    onTap: () {
+                      if (!authProvider.isLoggedIn) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text("Đăng nhập để xem bài viết của bạn."),
+                          ),
+                        );
+                        return;
+                      }
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const MyFeedScreen()),
                       );
                     },
                   ),
