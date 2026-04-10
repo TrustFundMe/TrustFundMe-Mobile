@@ -202,6 +202,28 @@ class ApiService {
     return _dio.get('${ApiConfig.mediaUrl}/media/posts/$postId');
   }
 
+  /// Revision history for a post. No auth required for PUBLISHED posts.
+  Future<Response<dynamic>> getFeedPostRevisions(
+    int postId, {
+    int page = 0,
+    int size = 10,
+  }) async {
+    return _dio.get(
+      '${ApiConfig.campaignUrl}/feed-posts/$postId/revisions',
+      queryParameters: <String, dynamic>{'page': page, 'size': size},
+    );
+  }
+
+  /// Single revision detail.
+  Future<Response<dynamic>> getFeedPostRevisionById(
+    int postId,
+    int revisionId,
+  ) async {
+    return _dio.get(
+      '${ApiConfig.campaignUrl}/feed-posts/$postId/revisions/$revisionId',
+    );
+  }
+
   Future<Response<dynamic>> updateMedia(
     int mediaId,
     Map<String, dynamic> body,

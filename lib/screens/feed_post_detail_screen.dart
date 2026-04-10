@@ -17,6 +17,7 @@ import '../widgets/flags/flag_reason_sheet.dart';
 import '../core/utils/flag_error_resolver.dart';
 import '../core/utils/flag_duplicate_guard.dart';
 import '../core/utils/feed_post_flag_guard.dart';
+import '../widgets/feed/post_revision_history_sheet.dart';
 
 /// Full post + inline comments (danbox `/post/[id]` parity).
 class FeedPostDetailScreen extends StatefulWidget {
@@ -542,15 +543,38 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                               ),
                                             ),
                                             const SizedBox(height: 4),
-                                            Text(
-                                              _formatPostDate(
-                                                _post!.updatedAt ?? _post!.createdAt,
-                                              ),
-                                              style: const TextStyle(
-                                                fontSize: 13,
-                                                color: _muted,
-                                                fontWeight: FontWeight.w500,
-                                              ),
+                                            Wrap(
+                                              crossAxisAlignment: WrapCrossAlignment.center,
+                                              spacing: 4,
+                                              children: <Widget>[
+                                                Text(
+                                                  _formatPostDate(_post!.createdAt),
+                                                  style: const TextStyle(
+                                                    fontSize: 13,
+                                                    color: _muted,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                                if (_post!.hasRevisions && _post!.updatedAt != null) ...<Widget>[
+                                                  const Text('·', style: TextStyle(fontSize: 13, color: _muted)),
+                                                  GestureDetector(
+                                                    onTap: () => showPostRevisionHistorySheet(
+                                                      context,
+                                                      postId: _post!.id,
+                                                    ),
+                                                    child: const Text(
+                                                      'Đã chỉnh sửa',
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        color: Color(0xFF1A685B),
+                                                        fontWeight: FontWeight.w600,
+                                                        decoration: TextDecoration.underline,
+                                                        decorationColor: Color(0xFF1A685B),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ],
                                             ),
                                           ],
                                         ),
@@ -601,20 +625,39 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
         backgroundColor: Colors.white,
         foregroundColor: _text,
         actions: <Widget>[
-          if (isOwner && !_loading && _post != null)
+          if (!_loading && _post != null)
             PopupMenuButton<String>(
               onSelected: (String v) {
                 if (v == 'edit') _editPost();
                 if (v == 'delete') _deletePost();
+                if (v == 'history') {
+                  showPostRevisionHistorySheet(
+                    context,
+                    postId: _post!.id,
+                  );
+                }
               },
               itemBuilder: (BuildContext c) => <PopupMenuEntry<String>>[
+                if (isOwner) ...<PopupMenuEntry<String>>[
+                  const PopupMenuItem<String>(
+                    value: 'edit',
+                    child: Text('Chỉnh sửa'),
+                  ),
+                  const PopupMenuItem<String>(
+                    value: 'delete',
+                    child: Text('Xóa'),
+                  ),
+                  const PopupMenuDivider(),
+                ],
                 const PopupMenuItem<String>(
-                  value: 'edit',
-                  child: Text('Chỉnh sửa'),
-                ),
-                const PopupMenuItem<String>(
-                  value: 'delete',
-                  child: Text('Xóa'),
+                  value: 'history',
+                  child: Row(
+                    children: <Widget>[
+                      Icon(Icons.history, size: 16),
+                      SizedBox(width: 8),
+                      Text('Lịch sử chỉnh sửa'),
+                    ],
+                  ),
                 ),
               ],
             ),

@@ -20,6 +20,7 @@ class FeedPostModel {
     this.isLiked = false,
     this.isPinned = false,
     this.isLocked = false,
+    this.hasRevisions = false,
     this.categoryId,
     this.postType = 'DISCUSSION',
   });
@@ -44,6 +45,9 @@ class FeedPostModel {
   bool isLiked;
   final bool isPinned;
   bool isLocked;
+  /// True when the post has ≥1 entry in feed_post_revisions.
+  /// Use this (not updatedAt vs createdAt) to show the "Đã chỉnh sửa" label.
+  final bool hasRevisions;
   final int? categoryId;
   /// Backend `type` (e.g. DISCUSSION).
   final String postType;
@@ -86,6 +90,7 @@ class FeedPostModel {
       isLiked: _bool(json['isLiked']),
       isPinned: _bool(json['isPinned']),
       isLocked: _bool(json['isLocked']),
+      hasRevisions: _bool(json['hasRevisions']),
       categoryId: _int(json['categoryId']),
       postType: (json['type'] as String?)?.trim().isNotEmpty == true
           ? (json['type'] as String).trim()
@@ -115,6 +120,7 @@ class FeedPostModel {
       isLiked: isLiked,
       isPinned: isPinned,
       isLocked: isLocked,
+      hasRevisions: hasRevisions,
       categoryId: categoryId,
       postType: postType,
     );
@@ -142,6 +148,7 @@ class FeedPostModel {
       isLiked: isLiked,
       isPinned: isPinned,
       isLocked: isLocked,
+      hasRevisions: hasRevisions,
       categoryId: categoryId,
       postType: postType,
     );

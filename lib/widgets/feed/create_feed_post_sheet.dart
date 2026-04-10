@@ -119,6 +119,10 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
   bool get _isEdit => widget.existingPost != null;
   bool get _shouldUseDraft => !_isEdit && widget.linkedCampaignId == null;
   bool get _isLockedLinkedCampaign => widget.linkedCampaignId != null && !_isEdit;
+  bool get _isTargetLocked =>
+      _isEdit &&
+      widget.existingPost?.targetId != null &&
+      (widget.existingPost?.targetType ?? '').isNotEmpty;
 
   @override
   void initState() {
@@ -696,13 +700,10 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
     try {
       if (_isEdit) {
         final FeedPostModel p = widget.existingPost!;
-        for (final _ExistingMediaSlot slot in _existingMedia) {
-          if (slot.markedForDelete && slot.item.id > 0) {
-            try {
-              await _api.deleteMedia(slot.item.id);
-            } catch (_) {}
-          }
-        }
+
+        // Step 1: update() FIRST — triggers snapshotRevision() which captures
+        // the BEFORE state (old text + old media still linked). Must happen
+        // before any media changes so the revision snapshot is accurate.
         final Map<String, dynamic> target = _targetBody();
         await _api.updateFeedPost(
           p.id,
@@ -713,6 +714,17 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
             ...target,
           },
         );
+
+        // Step 2: Delete removed images AFTER snapshot captured old state
+        for (final _ExistingMediaSlot slot in _existingMedia) {
+          if (slot.markedForDelete && slot.item.id > 0) {
+            try {
+              await _api.deleteMedia(slot.item.id);
+            } catch (_) {}
+          }
+        }
+
+        // Step 3: Upload new images/files
         int failUploads = 0;
         for (final XFile x in _pickedImages) {
           try {
@@ -978,7 +990,21 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
               ),
             ),
             const SizedBox(height: 10),
-            if (_isLockedLinkedCampaign)
+            if (_isTargetLocked)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  _targetKind == _TargetKind.campaign
+                      ? 'Đã gắn chiến dịch${_campaignLabel.isNotEmpty ? ': $_campaignLabel' : ''} (không thể đổi)'
+                      : 'Đã gắn đợt chi${_expenditureLabel.isNotEmpty ? ': $_expenditureLabel' : ''} (không thể đổi)',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF92400E),
+                  ),
+                ),
+              )
+            else if (_isLockedLinkedCampaign)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Text(
@@ -1008,21 +1034,21 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
                       _choiceTargetChip(
                         label: 'Không',
                         selected: _targetKind == _TargetKind.none,
-                        onSelected: _submitting
+                        onSelected: (_submitting || _isTargetLocked)
                             ? null
                             : (_) => _setTargetKind(_TargetKind.none, auth),
                       ),
                       _choiceTargetChip(
                         label: 'Chiến dịch',
                         selected: _targetKind == _TargetKind.campaign,
-                        onSelected: _submitting
+                        onSelected: (_submitting || _isTargetLocked)
                             ? null
                             : (_) => _setTargetKind(_TargetKind.campaign, auth),
                       ),
                       _choiceTargetChip(
                         label: 'Đợt chi',
                         selected: _targetKind == _TargetKind.expenditure,
-                        onSelected: _submitting
+                        onSelected: (_submitting || _isTargetLocked)
                             ? null
                             : (_) => _setTargetKind(_TargetKind.expenditure, auth),
                       ),
@@ -1030,7 +1056,7 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
                   ),
                 ),
               ),
-            if (_targetKind == _TargetKind.campaign && !_isLockedLinkedCampaign) ...<Widget>[
+            if (_targetKind == _TargetKind.campaign && !_isLockedLinkedCampaign && !_isTargetLocked) ...<Widget>[
               const SizedBox(height: 16),
               DropdownButtonFormField<int?>(
                 value: _campaignDropdownValue,
@@ -1078,7 +1104,7 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
                   ),
                 ),
             ],
-            if (_targetKind == _TargetKind.expenditure) ...<Widget>[
+            if (_targetKind == _TargetKind.expenditure && !_isTargetLocked) ...<Widget>[
               const SizedBox(height: 16),
               if (widget.linkedCampaignId == null) ...<Widget>[
                 DropdownButtonFormField<int?>(
