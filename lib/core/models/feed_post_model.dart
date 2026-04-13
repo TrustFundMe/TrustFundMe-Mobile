@@ -66,6 +66,22 @@ class FeedPostModel {
     return false;
   }
 
+  static String _normalizeVisibility(dynamic v) {
+    final String value = ((v as String?) ?? 'PUBLIC').toUpperCase().trim();
+    if (value == 'PUBLIC' || value == 'PRIVATE' || value == 'FOLLOWERS') {
+      return value;
+    }
+    return 'FOLLOWERS';
+  }
+
+  static String _normalizeStatus(dynamic v) {
+    final String value = ((v as String?) ?? 'DRAFT').toUpperCase().trim();
+    if (value == 'DRAFT' || value == 'PUBLISHED' || value == 'PENDING' || value == 'REJECTED' || value == 'HIDDEN') {
+      return value;
+    }
+    return 'DRAFT';
+  }
+
   factory FeedPostModel.fromJson(Map<String, dynamic> json) {
     return FeedPostModel(
       id: _int(json['id']) ?? 0,
@@ -76,8 +92,8 @@ class FeedPostModel {
       authorAvatar: json['authorAvatar'] as String?,
       title: json['title'] as String?,
       content: (json['content'] as String?) ?? '',
-      visibility: (json['visibility'] as String?) ?? 'PUBLIC',
-      status: (json['status'] as String?) ?? 'DRAFT',
+      visibility: _normalizeVisibility(json['visibility']),
+      status: _normalizeStatus(json['status']),
       createdAt: (json['createdAt'] as String?) ?? '',
       updatedAt: json['updatedAt'] as String?,
       targetId: _int(json['targetId']),

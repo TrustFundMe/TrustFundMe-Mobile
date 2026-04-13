@@ -89,8 +89,6 @@ class _CreateFeedPostBody extends StatefulWidget {
 
 class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
   static const Color _primary = Color(0xFFF84D43);
-  static const Color _sheetBorder = Color(0xFFE5E7EB);
-  static const Color _sheetFill = Color(0xFFF9FAFB);
   static const String _draftKey = 'create_feed_post_sheet_draft_v1';
 
   final ApiService _api = ApiService();
@@ -100,6 +98,7 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
   final List<PlatformFile> _pickedFiles = <PlatformFile>[];
   List<_ExistingMediaSlot> _existingMedia = <_ExistingMediaSlot>[];
   bool _submitting = false;
+  String _visibility = 'PUBLIC';
 
   _TargetKind _targetKind = _TargetKind.none;
   int? _campaignTargetId;
@@ -158,6 +157,9 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
       } else {
         _targetKind = _TargetKind.none;
       }
+      _visibility = p.visibility.toUpperCase() == 'FOLLOWERS'
+          ? 'FOLLOWERS'
+          : 'PUBLIC';
       _loadExistingMedia();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _preloadEditTargetOptions();
@@ -264,6 +266,10 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
                 : _TargetKind.none;
         _campaignTargetId = _parseInt(data['campaignTargetId']);
         _expenditureTargetId = _parseInt(data['expenditureTargetId']);
+        _visibility =
+            ((data['visibility'] as String?) ?? 'PUBLIC').toUpperCase() == 'FOLLOWERS'
+                ? 'FOLLOWERS'
+                : 'PUBLIC';
       });
       await _ensureCampaignOptions(context.read<AuthProvider>());
       if (_targetKind == _TargetKind.expenditure && _effectiveCampaignId != null) {
@@ -291,6 +297,7 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
       'targetKind': _targetKind.name,
       'campaignTargetId': _campaignTargetId,
       'expenditureTargetId': _expenditureTargetId,
+      'visibility': _visibility,
     };
     await prefs.setString(_draftKey, jsonEncode(data));
   }
@@ -651,7 +658,8 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
     return isEdit ? 'Cập nhật bài viết thất bại.' : 'Đăng bài thất bại.';
   }
 
-  Future<void> _submit(AuthProvider auth) async {
+  Future<void> _submit(AuthProvider auth, {required String nextStatus}) async {
+    if (_submitting) return;
     if (!auth.isLoggedIn || auth.user == null) {
       _showSnackBar('Vui lòng đăng nhập.', isError: true);
       return;
@@ -669,6 +677,13 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
         raw.length > 2000 ? raw.substring(0, 2000) : raw;
 
     final int? effectiveCampaignId = widget.linkedCampaignId ?? _campaignTargetId;
+    if (_visibility == 'FOLLOWERS' && effectiveCampaignId == null) {
+      _showSnackBar(
+        'Bài viết follower-only cần gắn với một campaign.',
+        isError: true,
+      );
+      return;
+    }
     if (_targetKind == _TargetKind.campaign &&
         (effectiveCampaignId == null ||
             (widget.linkedCampaignId == null &&
@@ -710,7 +725,8 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
           <String, dynamic>{
             'title': titlePayload,
             'content': contentPayload,
-            'status': 'PUBLISHED',
+            'status': nextStatus,
+            'visibility': _visibility,
             ...target,
           },
         );
@@ -765,10 +781,10 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
         final Response<dynamic> response = await _api.createFeedPost(
           <String, dynamic>{
             'type': 'DISCUSSION',
-            'visibility': 'PUBLIC',
+            'visibility': _visibility,
             'title': titlePayload,
             'content': contentPayload,
-            'status': 'PUBLISHED',
+            'status': nextStatus,
             ...target,
           },
         );
@@ -1257,6 +1273,48 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
               ),
             ),
             const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF9FAFB),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Row(
+                children: <Widget>[
+                  const Text(
+                    'Người xem:',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF374151),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Công khai'),
+                    selected: _visibility == 'PUBLIC',
+                    onSelected: _submitting
+                        ? null
+                        : (_) {
+                            setState(() => _visibility = 'PUBLIC');
+                            _saveDraftIfNeeded();
+                          },
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Follower'),
+                    selected: _visibility == 'FOLLOWERS',
+                    onSelected: _submitting
+                        ? null
+                        : (_) {
+                            setState(() => _visibility = 'FOLLOWERS');
+                            _saveDraftIfNeeded();
+                          },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
             if (_isEdit && _existingMedia.isNotEmpty) ...<Widget>[
               const Text(
                 'Ảnh / tệp hiện có',
@@ -1382,33 +1440,59 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
                 ),
             ],
             const SizedBox(height: 20),
-            FilledButton(
-              onPressed: _canSubmit ? () => _submit(auth) : null,
-              style: FilledButton.styleFrom(
-                backgroundColor: _primary,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              child: _submitting
-                  ? const SizedBox(
-                      height: 22,
-                      width: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : Text(
-                      _isEdit ? 'Lưu thay đổi' : 'Đăng bài ngay',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 16,
-                        letterSpacing: -0.2,
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _canSubmit && !_submitting
+                        ? () => _submit(auth, nextStatus: 'DRAFT')
+                        : null,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: const BorderSide(color: Color(0xFFF59E0B)),
+                      foregroundColor: const Color(0xFFB45309),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
                       ),
                     ),
+                    child: const Text(
+                      'Lưu bản nháp',
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _canSubmit ? () => _submit(auth, nextStatus: 'PUBLISHED') : null,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: _submitting
+                        ? const SizedBox(
+                            height: 22,
+                            width: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : Text(
+                            _isEdit ? 'Lưu thay đổi' : 'Đăng bài ngay',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 16,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

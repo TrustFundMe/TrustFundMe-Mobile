@@ -40,6 +40,8 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   bool _loading = true;
   String? _error;
   bool _dwellDone = false;
+  bool _isFollowingCampaign = true;
+  bool _followStateResolved = false;
 
   @override
   void initState() {
@@ -91,6 +93,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
         throw Exception('Dữ liệu không hợp lệ');
       }
       final FeedPostModel post = FeedPostModel.fromJson(data);
+      await _resolveFollowState(post);
       List<FeedPostMediaItem> media = <FeedPostMediaItem>[];
       try {
         final Response<dynamic> m = await _api.getMediaByPostId(widget.postId);
@@ -108,6 +111,67 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
         _loading = false;
         _error = 'Không tải được bài viết';
       });
+    }
+  }
+
+  int? _linkedCampaignId(FeedPostModel p) {
+    if ((p.targetType ?? '').toUpperCase() == 'CAMPAIGN') return p.targetId;
+    return null;
+  }
+
+  Future<void> _resolveFollowState(FeedPostModel post) async {
+    final AuthProvider auth = context.read<AuthProvider>();
+    final int? campaignId = _linkedCampaignId(post);
+    if (post.visibility.toUpperCase() != 'FOLLOWERS' || campaignId == null) {
+      _isFollowingCampaign = true;
+      _followStateResolved = true;
+      return;
+    }
+    if (!auth.isLoggedIn) {
+      _isFollowingCampaign = false;
+      _followStateResolved = true;
+      return;
+    }
+    try {
+      final Response<dynamic> res = await _api.isFollowingCampaign(campaignId);
+      final dynamic data = res.data;
+      _isFollowingCampaign = data is Map<String, dynamic> && data['following'] == true;
+    } catch (_) {
+      // Unknown follow state from network error: do not hard-lock by default.
+      _isFollowingCampaign = true;
+    }
+    _followStateResolved = true;
+  }
+
+  bool _isFollowerLocked(FeedPostModel post, AuthProvider auth) {
+    if (post.visibility.toUpperCase() != 'FOLLOWERS') return false;
+    if (auth.user?.id == post.authorId) return false;
+    if (!_followStateResolved) return true;
+    return !_isFollowingCampaign;
+  }
+
+  Future<void> _followCampaignFromLocked(FeedPostModel post) async {
+    final int? campaignId = _linkedCampaignId(post);
+    if (campaignId == null) return;
+    final AuthProvider auth = context.read<AuthProvider>();
+    if (!auth.isLoggedIn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đăng nhập để theo dõi campaign.')),
+      );
+      return;
+    }
+    try {
+      await _api.followCampaign(campaignId);
+      if (!mounted) return;
+      setState(() {
+        _isFollowingCampaign = true;
+        _followStateResolved = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không theo dõi được campaign lúc này.')),
+      );
     }
   }
 
@@ -397,10 +461,48 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
     final bool isOwner =
         auth.user != null && _post != null && auth.user!.id == _post!.authorId;
 
+    final bool locked = !_loading && _post != null && _isFollowerLocked(_post!, auth);
     final Widget body = _loading
         ? const Center(child: CircularProgressIndicator())
         : _error != null
             ? Center(child: Text(_error!, style: const TextStyle(color: _primary)))
+            : locked
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFE5E7EB)),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            const Icon(Icons.lock_outline, size: 36, color: _muted),
+                            const SizedBox(height: 10),
+                            const Text(
+                              'Nội dung này chỉ dành cho người theo dõi campaign.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontWeight: FontWeight.w700, color: _text),
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Theo dõi campaign để mở khóa toàn bộ nội dung.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: _muted),
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton(
+                              onPressed: () => _followCampaignFromLocked(_post!),
+                              child: const Text('Theo dõi campaign'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  )
             : _post == null
                 ? const SizedBox.shrink()
                 : FeedDwellTracker(

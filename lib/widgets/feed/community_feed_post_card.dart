@@ -26,6 +26,8 @@ class CommunityFeedPostCard extends StatelessWidget {
     this.onFlag,
     this.onEdit,
     this.onDelete,
+    this.isFollowerLocked = false,
+    this.onFollowCampaign,
   });
 
   final ApiService api;
@@ -45,6 +47,8 @@ class CommunityFeedPostCard extends StatelessWidget {
   final VoidCallback? onFlag;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+  final bool isFollowerLocked;
+  final VoidCallback? onFollowCampaign;
 
   static const Color _primary = Color(0xFFF84D43);
   static const Color _text = Color(0xFF111827);
@@ -126,6 +130,29 @@ class CommunityFeedPostCard extends StatelessWidget {
                                   fontSize: 10,
                                   fontWeight: FontWeight.w800,
                                   color: Color(0xFFB45309),
+                                ),
+                              ),
+                            ),
+                          if (post.visibility.toUpperCase() == 'FOLLOWERS')
+                            Container(
+                              margin: const EdgeInsets.only(left: 6),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEEF2FF),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: const Color(0xFFC7D2FE),
+                                ),
+                              ),
+                              child: const Text(
+                                'Chỉ follower',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF4338CA),
                                 ),
                               ),
                             ),
@@ -271,13 +298,66 @@ class CommunityFeedPostCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
               child: Text(
-                textPreview,
+                isFollowerLocked ? '${textPreview.split(' ').take(20).join(' ')} ...' : textPreview,
                 maxLines: 5,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 14,
                   height: 1.45,
                   color: _text,
+                ),
+              ),
+            ),
+          if (isFollowerLocked)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F4F6),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE5E7EB)),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            'Nội dung dành cho người theo dõi campaign.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF374151),
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Theo dõi để mở khóa toàn bộ bài viết.',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF6B7280),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: onFollowCampaign,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                      child: const Text(
+                        'Theo dõi',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -319,14 +399,14 @@ class CommunityFeedPostCard extends StatelessWidget {
             child: Row(
               children: <Widget>[
                 IconButton(
-                  onPressed: onLike,
+                  onPressed: isFollowerLocked ? null : onLike,
                   icon: Icon(
                     post.isLiked ? Icons.favorite : Icons.favorite_border,
                     color: post.isLiked ? _primary : _text,
                   ),
                 ),
                 IconButton(
-                  onPressed: onComment,
+                  onPressed: isFollowerLocked ? null : onComment,
                   icon: const Icon(Icons.mode_comment_outlined, color: _text),
                 ),
                 const Spacer(),
@@ -363,7 +443,7 @@ class CommunityFeedPostCard extends StatelessWidget {
       ),
     );
     return InkWell(
-      onTap: onOpen,
+      onTap: isFollowerLocked ? null : onOpen,
       borderRadius: BorderRadius.circular(20),
       child: inner,
     );

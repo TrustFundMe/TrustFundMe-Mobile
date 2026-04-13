@@ -418,6 +418,18 @@ class ApiService {
     return _dio.get("${ApiConfig.campaignUrl}/campaigns/$id");
   }
 
+  Future<Response<dynamic>> followCampaign(int campaignId) async {
+    return _dio.post('${ApiConfig.campaignUrl}/campaign-follows/$campaignId');
+  }
+
+  Future<Response<dynamic>> unfollowCampaign(int campaignId) async {
+    return _dio.delete('${ApiConfig.campaignUrl}/campaign-follows/$campaignId');
+  }
+
+  Future<Response<dynamic>> isFollowingCampaign(int campaignId) async {
+    return _dio.get('${ApiConfig.campaignUrl}/campaign-follows/$campaignId/me');
+  }
+
   Future<Response<dynamic>> getActiveGoalByCampaign(int campaignId) async {
     return _dio.get("${ApiConfig.campaignUrl}/fundraising-goals/active/$campaignId");
   }

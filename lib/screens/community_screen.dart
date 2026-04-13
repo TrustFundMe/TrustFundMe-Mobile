@@ -42,6 +42,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
       <int, List<FeedPostMediaItem>>{};
   final Set<int> _dwellDone = <int>{};
   final Set<int> _seenPostIds = <int>{};
+  final Map<int, bool> _followedCampaignMap = <int, bool>{};
   _FeedQuickFilter _quickFilter = _FeedQuickFilter.all;
   int _feedTotalElements = 0;
 
@@ -202,6 +203,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
         _hasMore = (refresh ? 1 : _page) < totalPages;
       });
       await _hydrateMedia(chunk);
+      await _hydrateFollowState(chunk);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -215,6 +217,59 @@ class _CommunityScreenState extends State<CommunityScreen> {
           _loadingMore = false;
         });
       }
+    }
+  }
+
+  int? _linkedCampaignId(FeedPostModel post) {
+    if ((post.targetType ?? '').toUpperCase() == 'CAMPAIGN' && post.targetId != null) {
+      return post.targetId;
+    }
+    return null;
+  }
+
+  Future<void> _hydrateFollowState(Iterable<FeedPostModel> posts) async {
+    final AuthProvider auth = context.read<AuthProvider>();
+    if (!auth.isLoggedIn) return;
+    final Set<int> ids = posts
+        .where((FeedPostModel p) => p.visibility.toUpperCase() == 'FOLLOWERS')
+        .map(_linkedCampaignId)
+        .whereType<int>()
+        .toSet();
+    final List<int> missing =
+        ids.where((int id) => !_followedCampaignMap.containsKey(id)).toList();
+    if (missing.isEmpty) return;
+    for (final int campaignId in missing) {
+      try {
+        final Response<dynamic> res = await _api.isFollowingCampaign(campaignId);
+        final dynamic data = res.data;
+        final bool following =
+            data is Map<String, dynamic> && data['following'] == true;
+        _followedCampaignMap[campaignId] = following;
+      } catch (_) {
+        // Unknown follow state (network/API error) -> avoid locking blindly.
+        continue;
+      }
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _followCampaign(int campaignId) async {
+    final AuthProvider auth = context.read<AuthProvider>();
+    if (!auth.isLoggedIn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đăng nhập để theo dõi campaign.')),
+      );
+      return;
+    }
+    try {
+      await _api.followCampaign(campaignId);
+      if (!mounted) return;
+      setState(() => _followedCampaignMap[campaignId] = true);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không theo dõi được campaign lúc này.')),
+      );
     }
   }
 
@@ -570,6 +625,12 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         final List<FeedPostMediaItem> media =
                             _mediaByPostId[post.id] ?? <FeedPostMediaItem>[];
                         final int? uid = auth.user?.id;
+                        final int? campaignId = _linkedCampaignId(post);
+                        final bool isFollowerLocked =
+                            post.visibility.toUpperCase() == 'FOLLOWERS' &&
+                            campaignId != null &&
+                            post.authorId != uid &&
+                            _followedCampaignMap[campaignId] != true;
                         return FeedDwellTracker(
                           visibilityKey: ValueKey<String>('dwell-${post.id}'),
                           dwell: const Duration(seconds: 3),
@@ -585,6 +646,10 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             showHotBadge: _isHotPost(post),
                             statusBadgeText: null,
                             currentUserId: uid,
+                            isFollowerLocked: isFollowerLocked,
+                            onFollowCampaign: campaignId == null
+                                ? null
+                                : () => _followCampaign(campaignId),
                             onOpen: () async {
                               await Navigator.push<void>(
                                 context,
