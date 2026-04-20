@@ -503,6 +503,14 @@ class ApiService {
     );
   }
 
+  Future<Response<dynamic>> getApprovedExpenditureItemsByCampaign(
+    int campaignId,
+  ) async {
+    return _dio.get(
+      '${ApiConfig.campaignUrl}/expenditures/campaign/$campaignId/items/approved',
+    );
+  }
+
   Future<Response<dynamic>> requestWithdrawal(int expenditureId) async {
     return _dio.post(
       '${ApiConfig.campaignUrl}/expenditures/$expenditureId/request-withdrawal',
@@ -600,6 +608,14 @@ class ApiService {
 
   Future<Response<dynamic>> verifyDonationPayment(int donationId) async {
     return _dio.get('${ApiConfig.paymentUrl}/donation/$donationId/verify');
+  }
+
+  Future<Response<dynamic>> syncDonationQuantity(int donationId) async {
+    return _dio.post('${ApiConfig.paymentUrl}/donation/$donationId/sync-quantity');
+  }
+
+  Future<Response<dynamic>> syncDonationBalance(int donationId) async {
+    return _dio.post('${ApiConfig.paymentUrl}/donation/$donationId/sync-balance');
   }
 
   Future<Response<dynamic>> getCampaignProgress(int campaignId) async {

@@ -239,6 +239,10 @@ class HomeScreen extends StatelessWidget {
     final EdgeInsets btnPad = isMobile
         ? const EdgeInsets.symmetric(horizontal: 26, vertical: 18)
         : const EdgeInsets.symmetric(horizontal: 20, vertical: 14);
+    final double createBtnFont = isMobile ? 13.5 : btnFont;
+    final EdgeInsets createBtnPad = isMobile
+        ? const EdgeInsets.symmetric(horizontal: 16, vertical: 12)
+        : btnPad;
     final double btnRadius = isMobile ? 16 : 14;
 
     return Wrap(
@@ -262,8 +266,8 @@ class HomeScreen extends StatelessWidget {
           text: "Tạo chiến dịch →",
           color: dark.withOpacity(0.08),
           textColor: dark,
-          padding: btnPad,
-          fontSize: btnFont,
+          padding: createBtnPad,
+          fontSize: createBtnFont,
           borderRadius: btnRadius,
           onPressed: () {
             Navigator.of(context).push(

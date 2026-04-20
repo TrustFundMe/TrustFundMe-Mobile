@@ -1,6 +1,7 @@
 class CampaignModel {
   final int id;
   final String title;
+  final String? type;
   final String? description;
   final String? coverImageUrl;
   final String? categoryName;
@@ -11,6 +12,7 @@ class CampaignModel {
   CampaignModel({
     required this.id,
     required this.title,
+    this.type,
     this.description,
     this.coverImageUrl,
     this.categoryName,
@@ -23,6 +25,7 @@ class CampaignModel {
     return CampaignModel(
       id: json['id'] as int,
       title: (json['title'] ?? '') as String,
+      type: json['type'] as String?,
       description: json['description'] as String?,
       coverImageUrl: json['coverImageUrl'] as String?,
       categoryName: json['categoryName'] as String?,

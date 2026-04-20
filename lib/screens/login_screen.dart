@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:provider/provider.dart';
 import '../core/providers/auth_provider.dart';
 import 'forgot_password_screen.dart';
@@ -28,12 +26,9 @@ class _LoginScreenState extends State<LoginScreen> {
   static const Color webBorderGray = Color(0xFFD1D5DB);
   static const Color webTextGray = Color(0xFF4B5563);
 
-  late final Future<void> _googleInitFuture;
-
   @override
   void initState() {
     super.initState();
-    _googleInitFuture = _initGoogleSignIn();
     final String? snack = widget.initialSnackMessage;
     if (snack != null && snack.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -45,59 +40,11 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _initGoogleSignIn() async {
-    final String? clientId = dotenv.maybeGet('GOOGLE_WEB_CLIENT_ID');
-    await GoogleSignIn.instance.initialize(
-      serverClientId: (clientId == null || clientId.isEmpty) ? null : clientId,
-    );
-  }
-
   @override
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
-  }
-
-  Future<void> _handleGoogleSignIn(AuthProvider authProvider) async {
-    if (authProvider.isLoading) return;
-
-    try {
-      await _googleInitFuture;
-      final GoogleSignInAccount googleUser = await GoogleSignIn.instance.authenticate(
-        scopeHint: const <String>['email', 'profile'],
-      );
-
-      final GoogleSignInAuthentication googleAuth = googleUser.authentication;
-      final String? idToken = googleAuth.idToken;
-
-      if (idToken == null || idToken.isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Không lấy được Google ID token. Kiểm tra GOOGLE_WEB_CLIENT_ID trong .env.',
-            ),
-          ),
-        );
-        return;
-      }
-
-      final bool success = await authProvider.loginWithGoogle(idToken);
-      if (!mounted) return;
-      if (success) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const MainScreen()),
-        );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Google login thất bại: $e'),
-        ),
-      );
-    }
   }
 
   @override
@@ -151,26 +98,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   child: Column(
                     children: [
-                      _buildSocialButton(
-                        icon: Icons.g_mobiledata,
-                        text: "Tiếp tục với Google",
-                        onPressed: () => _handleGoogleSignIn(authProvider),
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          const Expanded(child: Divider(color: webBorderGray)),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
-                            child: Text(
-                              "hoặc",
-                              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
-                            ),
-                          ),
-                          const Expanded(child: Divider(color: webBorderGray)),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
                       _buildTextField(
                         controller: _usernameController,
                         hint: "Email",
@@ -334,34 +261,6 @@ class _LoginScreenState extends State<LoginScreen> {
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: Color(0xFF111827), width: 1.5),
         ),
-      ),
-    );
-  }
-
-  Widget _buildSocialButton({
-    required IconData icon,
-    required String text,
-    required VoidCallback onPressed,
-  }) {
-    return OutlinedButton(
-      onPressed: onPressed,
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size(double.infinity, 50),
-        side: const BorderSide(color: webBorderGray),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: Colors.black, size: 28),
-          const SizedBox(width: 8),
-          Text(
-            text,
-            style: const TextStyle(color: Colors.black87, fontSize: 15, fontWeight: FontWeight.w400),
-          ),
-        ],
       ),
     );
   }

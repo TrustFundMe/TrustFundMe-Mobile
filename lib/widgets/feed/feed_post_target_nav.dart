@@ -87,6 +87,17 @@ class FeedPostTargetPill extends StatelessWidget {
   final ApiService api;
   final FeedPostModel post;
 
+  String _cleanTargetName(String value) {
+    String cleaned = value.trim();
+    // Backend đôi khi trả tiền tố kỹ thuật kiểu `evidence...` trước tên đợt chi.
+    cleaned = cleaned.replaceFirst(
+      RegExp(r'^evidence\S*\s*[-:|]?\s*', caseSensitive: false),
+      '',
+    );
+    cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return cleaned;
+  }
+
   @override
   Widget build(BuildContext context) {
     final int? tid = post.targetId;
@@ -96,7 +107,7 @@ class FeedPostTargetPill extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final bool isCampaign = tt == 'CAMPAIGN';
-    final String rawName = (post.targetName ?? '').trim();
+    final String rawName = _cleanTargetName(post.targetName ?? '');
     final String label = isCampaign
         ? (rawName.isEmpty
             ? 'Chiến dịch #$tid'

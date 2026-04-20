@@ -33,6 +33,8 @@ class _DonationScreenState extends State<DonationScreen> {
   bool _isAnonymous = false;
   bool _isAgreed = false;
   bool _isAmountMode = true;
+  bool _donationBlocked = false;
+  String _blockedMessage = '';
 
   List<ExpenditureItemModel> _items = <ExpenditureItemModel>[];
   final Map<int, int> _selectedQuantities = <int, int>{};
@@ -48,9 +50,22 @@ class _DonationScreenState extends State<DonationScreen> {
 
   Future<void> _fetchData() async {
     try {
-      final response =
-          await _api.getExpenditureItemsByCampaign(widget.campaign.id);
-      final List<dynamic> data = response.data as List<dynamic>;
+      final bool isItemized =
+          (widget.campaign.type ?? '').toUpperCase() == 'ITEMIZED';
+
+      List<dynamic> data = <dynamic>[];
+      if (isItemized) {
+        // Match web behavior: itemized donation only uses APPROVED items.
+        final approvedResponse =
+            await _api.getApprovedExpenditureItemsByCampaign(widget.campaign.id);
+        data = approvedResponse.data as List<dynamic>;
+      } else {
+        // General donation can still render even without approved expenditure items.
+        final response =
+            await _api.getExpenditureItemsByCampaign(widget.campaign.id);
+        data = response.data as List<dynamic>;
+      }
+
       _items = data
           .map(
             (dynamic e) =>
@@ -58,8 +73,27 @@ class _DonationScreenState extends State<DonationScreen> {
           )
           .where((ExpenditureItemModel e) => e.quantityLeft > 0)
           .toList();
+
+      if (isItemized && _items.isEmpty) {
+        _donationBlocked = true;
+        _blockedMessage =
+            'Chiến dịch đang trong quá trình giải ngân, chưa thể nhận quyên góp.';
+      } else {
+        _donationBlocked = false;
+        _blockedMessage = '';
+      }
     } catch (_) {
       _items = <ExpenditureItemModel>[];
+      final bool isItemized =
+          (widget.campaign.type ?? '').toUpperCase() == 'ITEMIZED';
+      if (isItemized) {
+        _donationBlocked = true;
+        _blockedMessage =
+            'Chiến dịch đang trong quá trình giải ngân, chưa thể nhận quyên góp.';
+      } else {
+        _donationBlocked = false;
+        _blockedMessage = '';
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -103,6 +137,19 @@ class _DonationScreenState extends State<DonationScreen> {
   }
 
   Future<void> _handleSubmit() async {
+    if (_donationBlocked) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _blockedMessage.isNotEmpty
+                ? _blockedMessage
+                : 'Chiến dịch chưa thể nhận quyên góp.',
+          ),
+        ),
+      );
+      return;
+    }
+
     if (_donationAmount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -202,6 +249,14 @@ class _DonationScreenState extends State<DonationScreen> {
           try {
             await _api.verifyDonationPayment(completedDonationId);
           } catch (_) {}
+          // Match web flow: sync item quantities + campaign balance
+          // after payment verification, but do not block success screen.
+          try {
+            await _api.syncDonationQuantity(completedDonationId);
+          } catch (_) {}
+          try {
+            await _api.syncDonationBalance(completedDonationId);
+          } catch (_) {}
           if (!mounted) return;
           final bool? goBackWithRefresh = await Navigator.of(context).push<bool>(
             MaterialPageRoute<bool>(
@@ -275,6 +330,26 @@ class _DonationScreenState extends State<DonationScreen> {
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                     children: [
+                      if (_donationBlocked)
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF2F2),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFFECACA)),
+                          ),
+                          child: Text(
+                            _blockedMessage.isNotEmpty
+                                ? _blockedMessage
+                                : 'Chiến dịch chưa thể nhận quyên góp.',
+                            style: const TextStyle(
+                              color: Color(0xFFB91C1C),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                       Container(
                         decoration: BoxDecoration(
                           color: Colors.white,
@@ -797,7 +872,12 @@ class _DonationScreenState extends State<DonationScreen> {
                           width: double.infinity,
                           child: ElevatedButton(
                             onPressed:
-                                (_submitting || !_isAgreed) ? null : _handleSubmit,
+                                (_submitting ||
+                                        !_isAgreed ||
+                                        _donationAmount <= 0 ||
+                                        _donationBlocked)
+                                    ? null
+                                    : _handleSubmit,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: webPrimary,
                               foregroundColor: Colors.white,
