@@ -41,6 +41,16 @@ class _ChatScreenState extends State<ChatScreen> {
     _resolveCampaignTitleIfNeeded();
   }
 
+  @override
+  void dispose() {
+    // Note: If using global provider, we might want to clear current conversation state
+    // but keep connection for notifications? For now, we follow real-time chat isolation.
+    context.read<ChatProvider>().disconnect();
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   bool _looksLikeFallbackIdTitle(String title) {
     final String t = title.trim().toLowerCase();
     return t.isEmpty || t.contains('#${widget.campaignId}');

@@ -226,14 +226,21 @@ class _ConversationCard extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        campaignTitle,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      Expanded(
+                        child: Text(
+                          campaignTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
                       ),
                       if (conversation.lastMessageAt != null)
-                        Text(
-                          DateFormat('dd/MM').format(conversation.lastMessageAt ?? DateTime.now()),
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8.0),
+                          child: Text(
+                            DateFormat('dd/MM').format(conversation.lastMessageAt ?? DateTime.now()),
+                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                          ),
                         ),
                     ],
                   ),

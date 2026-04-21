@@ -17,6 +17,7 @@ import '../widgets/flags/flag_reason_sheet.dart';
 import '../core/utils/flag_error_resolver.dart';
 import '../core/utils/flag_duplicate_guard.dart';
 import '../core/utils/feed_post_flag_guard.dart';
+import 'my_feed_screen.dart';
 
 enum _FeedQuickFilter { all, unseen, seen, hot }
 
@@ -583,17 +584,41 @@ class _CommunityScreenState extends State<CommunityScreen> {
                           : _FeedQuickFilter.seen,
                     ),
                   ),
-                  FeedFilterPill(
-                    label: 'Đang hot',
-                    selected: _quickFilter == _FeedQuickFilter.hot,
-                    selectedBg: const Color(0xFFEF4444),
-                    selectedFg: Colors.white,
-                    onTap: () => _setQuickFilterAndReload(
-                      _quickFilter == _FeedQuickFilter.hot
-                          ? _FeedQuickFilter.all
-                          : _FeedQuickFilter.hot,
+                    FeedFilterPill(
+                      label: 'Đang hot',
+                      selected: _quickFilter == _FeedQuickFilter.hot,
+                      selectedBg: const Color(0xFFEF4444),
+                      selectedFg: Colors.white,
+                      onTap: () => _setQuickFilterAndReload(
+                        _quickFilter == _FeedQuickFilter.hot
+                            ? _FeedQuickFilter.all
+                            : _FeedQuickFilter.hot,
+                      ),
                     ),
-                  ),
+                    if (auth.isLoggedIn) ...[
+                      const SizedBox(width: 8, height: 24, child: VerticalDivider(width: 1, color: Color(0xFFE5E7EB))),
+                      const SizedBox(width: 8),
+                      FeedFilterPill(
+                        label: 'Bài của tôi',
+                        selected: false,
+                        selectedBg: const Color(0xFF18181B),
+                        selectedFg: Colors.white,
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const MyFeedScreen()),
+                        ),
+                      ),
+                      FeedFilterPill(
+                        label: 'Bản nháp',
+                        selected: false,
+                        selectedBg: const Color(0xFFF59E0B),
+                        selectedFg: Colors.white,
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const MyFeedScreen(initialShowDrafts: true)),
+                        ),
+                      ),
+                    ],
                 ],
               ),
             ),

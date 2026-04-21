@@ -17,7 +17,8 @@ enum _MyFeedPill { all, draft }
 
 /// Bài viết của tôi — cùng layout/thẻ với feed cộng đồng, dữ liệu chỉ của user đăng nhập.
 class MyFeedScreen extends StatefulWidget {
-  const MyFeedScreen({super.key});
+  final bool initialShowDrafts;
+  const MyFeedScreen({super.key, this.initialShowDrafts = false});
 
   @override
   State<MyFeedScreen> createState() => _MyFeedScreenState();
@@ -50,6 +51,9 @@ class _MyFeedScreenState extends State<MyFeedScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialShowDrafts) {
+      _pill = _MyFeedPill.draft;
+    }
     _scroll.addListener(_onScroll);
     _load(refresh: true);
   }

@@ -122,16 +122,29 @@ class ChatProvider extends ChangeNotifier {
 
   // 3. WebSocket Connection
   Future<void> _connectWebSocket() async {
-    if (_stompClient != null && _stompClient!.isActive) return;
+    // If already connected to the SAME conversation, don't reconnect
+    if (_stompClient != null && _stompClient!.isActive && _currentConversation != null) {
+      debugPrint("ChatProvider: Already connected, ensuring subscription...");
+      return;
+    }
+
     if (_currentConversation == null) return;
 
+    // Deactivate existing client if any
+    if (_stompClient != null) {
+      debugPrint("ChatProvider: Deactivating old connection...");
+      _stompClient!.deactivate();
+      _stompClient = null;
+    }
+
     final String? token = await _authProvider.token;
+    debugPrint("ChatProvider: Connecting to ${ApiConfig.chatWsUrl} for conversation ${_currentConversation!.id}");
 
     _stompClient = StompClient(
       config: StompConfig(
         url: ApiConfig.chatWsUrl,
         onConnect: (frame) => _onConnect(frame),
-        onWebSocketError: (error) => debugPrint("WS Error: $error"),
+        onWebSocketError: (error) => debugPrint("ChatProvider: WS Error: $error"),
         stompConnectHeaders: {
           if (token != null) 'Authorization': 'Bearer $token',
         },
@@ -139,35 +152,58 @@ class ChatProvider extends ChangeNotifier {
           if (token != null) 'Authorization': 'Bearer $token',
         },
         onDisconnect: (frame) {
-           _isConnected = false;
-           notifyListeners();
+          debugPrint("ChatProvider: WS Disconnected. Frame: ${frame.body}");
+          _isConnected = false;
+          notifyListeners();
         },
+        reconnectDelay: const Duration(seconds: 5),
+        heartbeatOutgoing: const Duration(seconds: 10),
+        heartbeatIncoming: const Duration(seconds: 10),
+        onDebugMessage: (msg) => debugPrint("ChatProvider: STOMP Debug: $msg"),
+        onStompError: (frame) => debugPrint("ChatProvider: Stomp Error: ${frame.body}"),
       ),
     );
     _stompClient!.activate();
   }
 
   void _onConnect(StompFrame frame) {
+    debugPrint("ChatProvider: WS Connected!");
     _isConnected = true;
     notifyListeners();
 
+    if (_currentConversation == null) return;
+
+    // Subscribe to the conversation topic
     _stompClient!.subscribe(
       destination: '/topic/conversation/${_currentConversation!.id}',
       callback: (frame) {
         if (frame.body != null) {
-          final Map<String, dynamic> msgData = jsonDecode(frame.body!);
-          final currentUserId = _authProvider.user?.id ?? 0;
-          final ChatMessage newMessage = ChatMessage.fromJson(msgData, currentUserId);
-          
-          // Add if not exists
-          if (!_messages.any((m) => m.id == newMessage.id)) {
-            _messages.add(newMessage);
-            _messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
-            notifyListeners();
+          debugPrint("ChatProvider: Received message via WS: ${frame.body}");
+          try {
+            final Map<String, dynamic> msgData = jsonDecode(frame.body!);
+            final currentUserId = _authProvider.user?.id ?? 0;
+            final ChatMessage newMessage = ChatMessage.fromJson(msgData, currentUserId);
+            
+            // Avoid duplicates (since we might also get it via REST if we refresh at the same time)
+            if (!_messages.any((m) => m.id == newMessage.id)) {
+              _messages.add(newMessage);
+              _messages.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+              notifyListeners();
+            }
+          } catch (e) {
+            debugPrint("ChatProvider: Error decoding WS message: $e");
           }
         }
       },
     );
+  }
+
+  void disconnect() {
+    debugPrint("ChatProvider: Manual disconnect requested");
+    _stompClient?.deactivate();
+    _stompClient = null;
+    _isConnected = false;
+    notifyListeners();
   }
 
   // 4. Send Message

@@ -112,11 +112,27 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
         title: const Text("Chiến dịch của tôi", style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1F2937))),
         backgroundColor: Colors.white,
         elevation: 0,
-        centerTitle: true,
+        centerTitle: false,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: Color(0xFF1F2937)),
           onPressed: () => Navigator.pop(context),
         ),
+        actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const CreateCampaignScreen()),
+              ).then((_) {
+                if (!mounted) return;
+                _fetchMyCampaigns(reset: true);
+              });
+            },
+            icon: const Icon(Icons.add_circle_outline, color: Color(0xFFF84D43), size: 28),
+            tooltip: "Tạo chiến dịch",
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: () async {
@@ -139,20 +155,6 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
                   return _buildCampaignCard(campaign);
                 },
               ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const CreateCampaignScreen()),
-          ).then((_) {
-            if (!mounted) return;
-            _fetchMyCampaigns(reset: true);
-          });
-        },
-        backgroundColor: const Color(0xFFF84D43),
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text("Tạo chiến dịch", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
       ),
     );
   }
@@ -263,8 +265,10 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
                       ],
                     ),
                     Expanded(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                      child: Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 6,
+                        runSpacing: 6,
                         children: [
                           if (status.toUpperCase() == 'APPROVED') ...[
                             // Approved: Spending Campaign + View
@@ -285,7 +289,6 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
                               label: "Chi tiêu",
                               color: const Color(0xFF1A685B), // webEmerald
                             ),
-                            const SizedBox(width: 6),
                             _buildActionButton(
                               onPressed: () {
                                 Navigator.push(
@@ -302,7 +305,6 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
                               color: const Color(0xFF4B5563), // webTextGray
                               isSecondary: true,
                             ),
-                            const SizedBox(width: 6),
                             _buildActionButton(
                               onPressed: () {
                                 Navigator.push(
@@ -342,7 +344,6 @@ class _MyCampaignsScreenState extends State<MyCampaignsScreen> {
                               label: "Sửa",
                               color: const Color(0xFFF84D43), // webPrimary
                             ),
-                            const SizedBox(width: 8),
                             _buildActionButton(
                               onPressed: () {
                                 Navigator.push(

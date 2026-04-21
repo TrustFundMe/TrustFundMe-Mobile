@@ -65,7 +65,7 @@ class ChatMessage {
       conversationId: json['conversationId'],
       createdAt: json['createdAt'] != null ? DateTime.parse(json['createdAt']) : DateTime.now(),
       isMe: senderId == currentUserId,
-      senderName: senderId == 0 ? "Bot" : (senderId == currentUserId ? "Tôi" : "Staff"),
+      senderName: json['senderName'] ?? (senderId == 0 ? "Bot" : (senderId == currentUserId ? "Tôi" : "Staff")),
     );
   }
 }

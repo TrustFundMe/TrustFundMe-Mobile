@@ -4,19 +4,96 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
 import 'campaigns_screen.dart';
+import 'campaign_detail_screen.dart';
 import 'create_campaign_screen.dart';
 import '../core/providers/auth_provider.dart';
+import '../core/api/api_service.dart';
+import '../core/models/campaign_model.dart';
+import '../core/models/payment_models.dart';
+import 'package:intl/intl.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final ApiService _api = ApiService();
+  bool _loading = true;
+  List<CampaignModel> _campaigns = <CampaignModel>[];
+  final Map<int, CampaignProgressModel> _progressByCampaign =
+      <int, CampaignProgressModel>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchCampaigns();
+  }
+
+  Future<void> _fetchCampaigns() async {
+    setState(() => _loading = true);
+    try {
+      final response = await _api.getCampaigns();
+      final dynamic raw = response.data;
+
+      // Logic from CampaignsScreen to extract list
+      List<dynamic> data = [];
+      if (raw is List<dynamic>) {
+        data = raw;
+      } else if (raw is Map<String, dynamic>) {
+        final dynamic d = raw['data'];
+        if (d is List<dynamic>) {
+          data = d;
+        } else if (d is Map<String, dynamic>) {
+          final dynamic nc = d['content'];
+          if (nc is List<dynamic>) data = nc;
+        } else if (raw['content'] is List<dynamic>) {
+          data = raw['content'];
+        }
+      }
+
+      final List<CampaignModel> parsed = data
+          .map((e) => CampaignModel.fromJson(e as Map<String, dynamic>))
+          .toList();
+      
+      if (!mounted) return;
+      setState(() {
+        _campaigns = parsed;
+        _loading = false;
+      });
+      _fetchProgressInBackground(parsed);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _fetchProgressInBackground(List<CampaignModel> campaigns) async {
+    // Only fetch for first 5 to avoid too many requests on Home
+    final List<CampaignModel> top = campaigns.take(5).toList();
+    for (final CampaignModel c in top) {
+      try {
+        final progressRes = await _api.getCampaignProgress(c.id);
+        final CampaignProgressModel progress = CampaignProgressModel.fromJson(
+          progressRes.data as Map<String, dynamic>,
+        );
+        if (!mounted) return;
+        setState(() {
+          _progressByCampaign[c.id] = progress;
+        });
+      } catch (_) {}
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    const Color webEmerald = Color(0xFF1A685B);
     const Color webPrimary = Color(0xFFF84D43);
     const Color webBgGray = Color(0xFFF9FAFB);
     const Color webTextDark = Color(0xFF1F2937);
     const Color webTextGray = Color(0xFF4B5563);
-    const Color webEmerald = Color(0xFF1A685B);
 
     return Scaffold(
       backgroundColor: webBgGray,
@@ -111,13 +188,7 @@ class HomeScreen extends StatelessWidget {
               size: 140, borderRadius: 24,
             ).animate(delay: 400.ms).fadeIn(),
           ),
-          Positioned(
-            right: 120, bottom: 20,
-            child: _buildCollageImage(
-              url: 'https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?q=80&w=1280&auto=format&fit=crop',
-              size: 110, borderRadius: 24,
-            ).animate(delay: 600.ms).fadeIn(),
-          ),
+          // 3rd image removed as per user request to show Create Campaign button more clearly
 
           // Text and Actions on the left
           Positioned(
@@ -458,28 +529,40 @@ class HomeScreen extends StatelessWidget {
           ),
         ),
         SizedBox(
-          height: 340,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            children: [
-              _ProjectCard(
-                "Quỹ Trẻ em vùng cao",
-                "Hỗ trợ sách vở và trường học cho các bé vùng núi.",
-                0.75,
-                primary,
-                "https://placehold.co/800x500.png?text=Tre+em+vung+cao&bg=DBEAFE&color=0F172A",
-              ).animate().fadeIn(delay: 600.ms).slideX(begin: 0.2),
-              _ProjectCard(
-                "Cứu trợ thiên tai",
-                "Hỗ trợ khẩn cấp cho các gia đình bị ảnh hưởng bão.",
-                0.40,
-                primary,
-                "https://placehold.co/800x500.png?text=Cuu+tro+thien+tai&bg=E2E8F0&color=0F172A",
-              ).animate().fadeIn(delay: 800.ms).slideX(begin: 0.2),
-            ],
-          ),
+          height: 360,
+          child: _loading && _campaigns.isEmpty
+              ? const Center(child: CircularProgressIndicator())
+              : ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _campaigns.isEmpty ? 0 : _campaigns.length.clamp(0, 5),
+                  itemBuilder: (context, index) {
+                    final campaign = _campaigns[index];
+                    final progress = _progressByCampaign[campaign.id];
+                    final double ratio = (progress?.progressPercentage ?? 0) / 100;
+
+                    return InkWell(
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => CampaignDetailScreen(
+                              campaign: campaign,
+                              initialProgress: progress,
+                            ),
+                          ),
+                        );
+                      },
+                      child: _ProjectCard(
+                        campaign.title,
+                        campaign.description ?? "",
+                        ratio,
+                        primary,
+                        campaign.coverImageUrl ?? "https://placehold.co/800x500.png?text=${Uri.encodeComponent(campaign.title)}&bg=DBEAFE&color=0F172A",
+                      ),
+                    ).animate().fadeIn(delay: (200 * index).ms).slideX(begin: 0.2);
+                  },
+                ),
         ),
       ],
     );
