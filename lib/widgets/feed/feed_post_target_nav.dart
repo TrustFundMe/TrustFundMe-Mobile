@@ -13,6 +13,13 @@ Future<void> openFeedPostTarget(
   ApiService api,
   FeedPostModel post,
 ) async {
+  int? parseInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse(v.toString());
+  }
+
   final int? tid = post.targetId;
   if (tid == null) return;
   final String tt = (post.targetType ?? '').trim().toUpperCase();
@@ -40,10 +47,11 @@ Future<void> openFeedPostTarget(
         throw Exception('invalid expenditure payload');
       }
       final Map<String, dynamic> exp = Map<String, dynamic>.from(data);
-      final dynamic rawCid = exp['campaignId'];
-      final int? campaignId = rawCid is int
-          ? rawCid
-          : int.tryParse(rawCid?.toString() ?? '');
+      final int? campaignId = parseInt(exp['campaignId']) ??
+          parseInt((exp['campaign'] as Map?)?['id']);
+      if (campaignId != null) {
+        exp['campaignId'] = campaignId;
+      }
       String campaignType = 'ITEMIZED';
       if (campaignId != null) {
         try {
@@ -63,6 +71,7 @@ Future<void> openFeedPostTarget(
           builder: (_) => ExpenditureDetailScreen(
             expenditure: exp,
             campaignType: campaignType,
+            forcePublicView: true,
           ),
         ),
       );
@@ -98,6 +107,19 @@ class FeedPostTargetPill extends StatelessWidget {
     return cleaned;
   }
 
+  bool _isEvidenceTarget(String value) {
+    return value.trim().toLowerCase().startsWith('evidence');
+  }
+
+  String _formatExpenditureLabel(String rawName, int id) {
+    if (rawName.isEmpty) return 'Chi tiêu đợt #$id';
+    final String lower = rawName.toLowerCase();
+    if (lower.startsWith('chi tiêu đợt')) return rawName;
+    if (lower.startsWith('tiêu đợt')) return 'Chi $rawName';
+    if (lower.startsWith('đợt')) return 'Chi tiêu $rawName';
+    return 'Chi tiêu đợt $rawName';
+  }
+
   @override
   Widget build(BuildContext context) {
     final int? tid = post.targetId;
@@ -107,12 +129,13 @@ class FeedPostTargetPill extends StatelessWidget {
       return const SizedBox.shrink();
     }
     final bool isCampaign = tt == 'CAMPAIGN';
-    final String rawName = _cleanTargetName(post.targetName ?? '');
+    final String originalTargetName = post.targetName ?? '';
+    final String rawName = _cleanTargetName(originalTargetName);
+    final bool isEvidencePost = !isCampaign && _isEvidenceTarget(originalTargetName);
+    final String expenditureLabel = _formatExpenditureLabel(rawName, tid);
     final String label = isCampaign
-        ? (rawName.isEmpty
-            ? 'Chiến dịch #$tid'
-            : 'Chiến dịch #$tid - $rawName')
-        : (rawName.isEmpty ? 'Đợt chi #$tid' : 'Đợt chi #$tid - $rawName');
+        ? (rawName.isEmpty ? 'Chiến dịch #$tid' : rawName)
+        : (isEvidencePost ? 'Minh chứng cho $expenditureLabel' : expenditureLabel);
 
     return Padding(
       padding: const EdgeInsets.only(top: 8),

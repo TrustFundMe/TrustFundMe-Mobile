@@ -7,6 +7,7 @@ import '../core/constants/api_constants.dart';
 import '../core/api/api_service.dart';
 import '../core/models/feed_post_media_model.dart';
 import '../core/models/feed_post_model.dart';
+import '../core/models/feed_post_revision_model.dart';
 import '../core/providers/auth_provider.dart';
 import '../widgets/feed/create_feed_post_sheet.dart';
 import '../widgets/feed/feed_comments_panel.dart';
@@ -456,6 +457,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final AuthProvider auth = context.watch<AuthProvider>();
+    final double bottomMenuInset = MediaQuery.of(context).viewPadding.bottom + 72;
     final double mediaImageCap =
         (MediaQuery.sizeOf(context).height * 0.26).clamp(160.0, 220.0);
     final bool isOwner =
@@ -663,6 +665,15 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                                     onTap: () => showPostRevisionHistorySheet(
                                                       context,
                                                       postId: _post!.id,
+                                                      currentTitle: _post!.title,
+                                                      currentContent: _post!.content,
+                                                      currentMedia: _media
+                                                          .map((FeedPostMediaItem m) => RevisionMediaItem(
+                                                                mediaId: m.id > 0 ? m.id : null,
+                                                                url: m.url,
+                                                                mediaType: m.mediaType,
+                                                              ))
+                                                          .toList(),
                                                     ),
                                                     child: const Text(
                                                       'Đã chỉnh sửa',
@@ -736,6 +747,15 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                   showPostRevisionHistorySheet(
                     context,
                     postId: _post!.id,
+                    currentTitle: _post!.title,
+                    currentContent: _post!.content,
+                    currentMedia: _media
+                        .map((FeedPostMediaItem m) => RevisionMediaItem(
+                              mediaId: m.id > 0 ? m.id : null,
+                              url: m.url,
+                              mediaType: m.mediaType,
+                            ))
+                        .toList(),
                   );
                 }
               },
@@ -765,7 +785,10 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
             ),
         ],
       ),
-      body: body,
+      body: Padding(
+        padding: EdgeInsets.only(bottom: bottomMenuInset),
+        child: body,
+      ),
     );
   }
 }

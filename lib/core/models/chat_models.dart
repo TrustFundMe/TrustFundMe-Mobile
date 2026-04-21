@@ -4,6 +4,7 @@ class Conversation {
   final int? staffId;
   final int fundOwnerId;
   final int campaignId;
+  final String? campaignTitle;
   final DateTime? lastMessageAt;
   final DateTime createdAt;
   final String? lastMessageContent;
@@ -13,6 +14,7 @@ class Conversation {
     this.staffId,
     required this.fundOwnerId,
     required this.campaignId,
+    this.campaignTitle,
     this.lastMessageAt,
     required this.createdAt,
     this.lastMessageContent,
@@ -24,6 +26,7 @@ class Conversation {
       staffId: json['staffId'],
       fundOwnerId: json['fundOwnerId'],
       campaignId: json['campaignId'],
+      campaignTitle: (json['campaignTitle'] as String?)?.trim(),
       lastMessageAt: json['lastMessageAt'] != null ? DateTime.parse(json['lastMessageAt']) : null,
       createdAt: DateTime.parse(json['createdAt']),
       lastMessageContent: json['lastMessageContent'],

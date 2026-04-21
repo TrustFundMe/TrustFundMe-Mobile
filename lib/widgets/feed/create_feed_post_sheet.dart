@@ -48,20 +48,23 @@ Future<void> showCreateFeedPostSheet(
       borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
     ),
     builder: (BuildContext ctx) {
-      return AnnotatedRegion<SystemUiOverlayStyle>(
-        value: const SystemUiOverlayStyle(
-          statusBarColor: Color(0xFF424242),
-          statusBarBrightness: Brightness.dark,
-          statusBarIconBrightness: Brightness.light,
-          systemNavigationBarColor: Colors.white,
-          systemNavigationBarIconBrightness: Brightness.dark,
-        ),
-        child: _CreateFeedPostBody(
-          linkedCampaignId: linkedCampaignId,
-          linkedCampaignTitle: linkedCampaignTitle,
-          existingPost: existingPost,
-          onCreated: onCreated,
-          onUpdated: onUpdated,
+      return FractionallySizedBox(
+        heightFactor: 0.92,
+        child: AnnotatedRegion<SystemUiOverlayStyle>(
+          value: const SystemUiOverlayStyle(
+            statusBarColor: Color(0xFF424242),
+            statusBarBrightness: Brightness.dark,
+            statusBarIconBrightness: Brightness.light,
+            systemNavigationBarColor: Colors.white,
+            systemNavigationBarIconBrightness: Brightness.dark,
+          ),
+          child: _CreateFeedPostBody(
+            linkedCampaignId: linkedCampaignId,
+            linkedCampaignTitle: linkedCampaignTitle,
+            existingPost: existingPost,
+            onCreated: onCreated,
+            onUpdated: onUpdated,
+          ),
         ),
       );
     },
@@ -643,9 +646,14 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
       final String? apiMessage = data is Map<String, dynamic>
           ? (data['message'] as String?)?.trim()
           : null;
+      final String apiMessageLower = apiMessage?.toLowerCase() ?? '';
       if (status == 401) return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
       if (status == 403) return 'Bạn không có quyền thực hiện thao tác này.';
       if (status == 422 || status == 400) {
+        if (apiMessageLower.contains('invalid input data') ||
+            apiMessageLower.contains('invalid input')) {
+          return 'Dữ liệu chưa hợp lệ. Vui lòng nhập nội dung bài viết.';
+        }
         return apiMessage?.isNotEmpty == true
             ? apiMessage!
             : 'Dữ liệu bài viết chưa hợp lệ. Vui lòng kiểm tra lại.';
@@ -666,6 +674,10 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
     }
     final String raw = _content.text.trim();
     final String titleTrim = _title.text.trim();
+    if (raw.isEmpty) {
+      _showSnackBar('Vui lòng nhập nội dung bài viết.', isError: true);
+      return;
+    }
     if (raw.isEmpty && titleTrim.isEmpty) {
       _showSnackBar('Vui lòng nhập tiêu đề hoặc nội dung.', isError: true);
       return;
@@ -948,7 +960,6 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
   Widget build(BuildContext context) {
     final AuthProvider auth = context.watch<AuthProvider>();
     final MediaQueryData mq = MediaQuery.of(context);
-    final double bottomInset = mq.viewInsets.bottom;
     final double bottomSafe = mq.viewPadding.bottom;
 
     return Scaffold(
@@ -990,7 +1001,7 @@ class _CreateFeedPostBodyState extends State<_CreateFeedPostBody> {
             left: 20,
             right: 20,
             top: 20,
-            bottom: bottomInset + bottomSafe + 20,
+            bottom: bottomSafe + 20,
           ),
         child: SingleChildScrollView(
           child: Column(

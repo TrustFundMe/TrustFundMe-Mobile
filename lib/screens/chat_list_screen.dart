@@ -1,8 +1,6 @@
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
-import '../core/providers/chat_provider.dart';
 import '../core/api/api_service.dart';
 import '../core/models/chat_models.dart';
 import 'chat_screen.dart';
@@ -146,6 +144,11 @@ class _ConversationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final String campaignTitle =
+        (conversation.campaignTitle ?? '').trim().isNotEmpty
+            ? conversation.campaignTitle!.trim()
+            : "Chiến dịch #${conversation.campaignId}";
+
     return InkWell(
       onTap: () {
         Navigator.push(
@@ -153,7 +156,7 @@ class _ConversationCard extends StatelessWidget {
           MaterialPageRoute(
             builder: (_) => ChatScreen(
               campaignId: conversation.campaignId,
-              campaignTitle: "Chiến dịch #${conversation.campaignId}",
+              campaignTitle: campaignTitle,
               staffId: conversation.staffId,
             ),
           ),
@@ -185,7 +188,7 @@ class _ConversationCard extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        "Chiến dịch #${conversation.campaignId}",
+                        campaignTitle,
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                       ),
                       if (conversation.lastMessageAt != null)

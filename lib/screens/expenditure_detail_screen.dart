@@ -8,15 +8,18 @@ import 'package:provider/provider.dart';
 import '../core/api/api_service.dart';
 import '../core/models/feed_post_media_model.dart';
 import '../core/providers/auth_provider.dart';
+import 'feed_post_detail_screen.dart';
 
 class ExpenditureDetailScreen extends StatefulWidget {
   final Map<String, dynamic> expenditure;
   final String campaignType;
+  final bool forcePublicView;
 
   const ExpenditureDetailScreen({
     Key? key,
     required this.expenditure,
     required this.campaignType,
+    this.forcePublicView = false,
   }) : super(key: key);
 
   @override
@@ -35,6 +38,9 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
   late Map<String, dynamic> _expenditure;
   List<dynamic> _items = [];
   List<String> _evidencePreviewUrls = <String>[];
+  int? _evidencePostId;
+  bool _hasEvidencePost = false;
+  String? _evidencePostedAt;
   int? _campaignOwnerId;
   final List<XFile> _evidenceImages = <XFile>[];
   final TextEditingController _evidenceNoteCtrl = TextEditingController();
@@ -63,6 +69,14 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
   }
 
   String _vnd(num value) => '${_fmt.format(value)} ₫';
+
+  String _expenditureTitle() {
+    final String rawPlan = (_expenditure['plan'] ?? '').toString().trim();
+    if (rawPlan.isNotEmpty) {
+      return rawPlan;
+    }
+    return 'Chi tiêu đợt #${_expenditure['id']}';
+  }
 
   Future<void> _loadItems() async {
     setState(() => _isLoading = true);
@@ -144,10 +158,24 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
           .toList();
       if (matches.isEmpty) {
         if (!mounted) return;
-        setState(() => _evidencePreviewUrls = <String>[]);
+        setState(() {
+          _evidencePreviewUrls = <String>[];
+          _evidencePostId = null;
+          _hasEvidencePost = false;
+          _evidencePostedAt = null;
+        });
         return;
       }
-      final int postId = (matches.first['id'] as num).toInt();
+      Map<String, dynamic>? evidencePost;
+      for (final Map<String, dynamic> p in matches) {
+        final String targetName = (p['targetName'] ?? '').toString().trim().toLowerCase();
+        if (targetName.startsWith('evidence')) {
+          evidencePost = p;
+          break;
+        }
+      }
+      evidencePost ??= matches.first;
+      final int postId = (evidencePost['id'] as num).toInt();
       final Response<dynamic> mediaRes = await _api.getMediaByPostId(postId);
       final List<FeedPostMediaItem> media = parseFeedPostMediaResponse(mediaRes.data);
       final List<String> urls = media
@@ -155,7 +183,12 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
           .map((FeedPostMediaItem m) => m.url)
           .toList();
       if (!mounted) return;
-      setState(() => _evidencePreviewUrls = urls);
+      setState(() {
+        _evidencePreviewUrls = urls;
+        _evidencePostId = postId;
+        _hasEvidencePost = true;
+        _evidencePostedAt = evidencePost!['createdAt']?.toString();
+      });
     } catch (_) {}
   }
 
@@ -303,11 +336,12 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isOwnerView = !widget.forcePublicView && _canManageEvidence;
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
       appBar: AppBar(
         title: Text(
-          'Đợt chi tiêu #${_expenditure['id']}',
+          _expenditureTitle(),
           style: const TextStyle(
               color: Color(0xFF1F2937),
               fontWeight: FontWeight.bold,
@@ -335,13 +369,327 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildStepBar(),
+                    if (isOwnerView) _buildStepBar(),
+                    if (isOwnerView) const SizedBox(height: 24),
+                    if (!isOwnerView) _buildPublicHint(),
                     const SizedBox(height: 24),
-                    _buildStepContent(),
+                    isOwnerView ? _buildStepContent() : _buildPublicReadOnlyContent(),
                   ],
                 ),
               ),
             ),
+    );
+  }
+
+  Widget _buildPublicHint() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEEF2FF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFC7D2FE)),
+      ),
+      child: const Text(
+        'Thông tin đợt chi đang hiển thị ở chế độ công khai.',
+        style: TextStyle(
+          color: Color(0xFF3730A3),
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPublicReadOnlyContent() {
+    return Column(
+      children: <Widget>[
+        _buildWebLikeTopCards(),
+        const SizedBox(height: 12),
+        _buildWebLikeItemsTable(),
+        const SizedBox(height: 16),
+        if (_evidencePreviewUrls.isNotEmpty) ...<Widget>[
+          _buildEvidenceGallery(),
+          const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildWebLikeTopCards() {
+    final String title = _expenditureTitle();
+    final String dueAt = _expenditure['evidenceDueAt']?.toString() ?? '';
+    final DateTime? dueDate = dueAt.isNotEmpty ? DateTime.tryParse(dueAt.replaceFirst(' ', 'T')) : null;
+    final double totalExpected = (_expenditure['totalExpectedAmount'] ?? 0).toDouble();
+    final double disbursed = (_expenditure['disbursedAmount'] ?? 0).toDouble();
+    final double spent = (_expenditure['spentAmount'] ?? 0).toDouble();
+    final double remaining = (disbursed - spent).clamp(0, double.infinity);
+    final double progress = disbursed > 0 ? (spent / disbursed).clamp(0, 1) : 0;
+    final String status = (_expenditure['status'] ?? '').toString().toUpperCase();
+    final bool hasEvidence = _hasEvidencePost && _evidencePostId != null;
+
+    return Column(
+      children: <Widget>[
+        _card(
+          child: Row(
+            children: <Widget>[
+              const Icon(Icons.assignment_outlined, color: Color(0xFF1F2937), size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Hạn nộp: ${dueDate != null ? DateFormat('dd/MM/yyyy').format(dueDate) : 'Chưa có'}',
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 154,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: <Widget>[
+              _metricCard('Dự kiến', _vnd(totalExpected), width: 148),
+              _metricCard('Giải ngân', _vnd(disbursed), width: 148),
+              _metricCard('Đã chi', _vnd(spent), width: 148),
+              _metricCard('Số dư', _vnd(remaining), width: 148),
+              Container(
+                width: 210,
+                margin: const EdgeInsets.only(right: 10),
+                child: _card(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          const Text('Trạng thái', style: TextStyle(fontWeight: FontWeight.w700)),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFECFDF5),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              status == 'DISBURSED' ? 'Đã giải ngân' : status,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Color(0xFF166534),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 8,
+                        borderRadius: BorderRadius.circular(999),
+                        backgroundColor: const Color(0xFFE5E7EB),
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF065F46)),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${(progress * 100).toStringAsFixed(0)}% tiến độ sử dụng',
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Container(
+                width: 240,
+                margin: const EdgeInsets.only(right: 4),
+                child: _card(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          const Text('Minh chứng', style: TextStyle(fontWeight: FontWeight.w700)),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: hasEvidence ? const Color(0xFFECFDF5) : const Color(0xFFFEF3C7),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              hasEvidence ? 'Đã nộp' : 'Chưa nộp',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: hasEvidence ? const Color(0xFF166534) : const Color(0xFF92400E),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Nộp lúc: ${_evidencePostedAt != null ? DateFormat('dd/MM/yyyy').format(DateTime.tryParse(_evidencePostedAt!.replaceFirst(' ', 'T')) ?? DateTime.now()) : '---'}',
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: hasEvidence
+                              ? () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => FeedPostDetailScreen(postId: _evidencePostId!),
+                                    ),
+                                  );
+                                }
+                              : null,
+                          icon: const Icon(Icons.open_in_new, size: 15),
+                          label: const Text('Xem bài đăng minh chứng'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _metricCard(String label, String value, {double width = 140}) {
+    return Container(
+      width: width,
+      margin: const EdgeInsets.only(right: 10),
+      child: _card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWebLikeItemsTable() {
+    final double totalExpected = (_expenditure['totalExpectedAmount'] ?? 0).toDouble();
+    final double disbursed = (_expenditure['disbursedAmount'] ?? 0).toDouble();
+    final double spent = (_expenditure['spentAmount'] ?? 0).toDouble();
+    final double progress = disbursed > 0 ? (spent / disbursed).clamp(0, 1) : 0;
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const Icon(Icons.table_rows_outlined, size: 16, color: Color(0xFF374151)),
+              const SizedBox(width: 6),
+              Text(
+                'Danh sách hạng mục chi tiêu (${_items.length})',
+                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: DataTable(
+              headingRowHeight: 36,
+              dataRowMinHeight: 44,
+              dataRowMaxHeight: 48,
+              horizontalMargin: 8,
+              columnSpacing: 18,
+              columns: const <DataColumn>[
+                DataColumn(label: Text('STT')),
+                DataColumn(label: Text('Hạng mục')),
+                DataColumn(label: Text('Kế hoạch')),
+                DataColumn(label: Text('Đã chi')),
+                DataColumn(label: Text('Tiến độ')),
+              ],
+              rows: _items.asMap().entries.map((entry) {
+                final int idx = entry.key;
+                final dynamic it = entry.value;
+                final double expectedPrice = (it['expectedPrice'] ?? 0).toDouble();
+                final int quantity = (it['quantity'] ?? 1) as int;
+                final double planned = expectedPrice * quantity;
+                final double actualUnit = (it['actualPrice'] ?? expectedPrice).toDouble();
+                final double actual = actualUnit * quantity;
+                final double ratio = planned > 0 ? (actual / planned).clamp(0, 1) : 0;
+                return DataRow(
+                  cells: <DataCell>[
+                    DataCell(Text('${idx + 1}')),
+                    DataCell(SizedBox(
+                      width: 122,
+                      child: Text(
+                        (it['category'] ?? '—').toString(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    )),
+                    DataCell(Text(_vnd(planned))),
+                    DataCell(Text(_vnd(actual))),
+                    DataCell(SizedBox(
+                      width: 92,
+                      child: LinearProgressIndicator(
+                        value: ratio,
+                        minHeight: 8,
+                        borderRadius: BorderRadius.circular(999),
+                        backgroundColor: const Color(0xFFE5E7EB),
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF065F46)),
+                      ),
+                    )),
+                  ],
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9FAFB),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: Row(
+              children: <Widget>[
+                Expanded(child: Text('Dự kiến: ${_vnd(totalExpected)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12))),
+                Expanded(child: Text('Đã chi: ${_vnd(spent)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12))),
+                Expanded(
+                  child: Text(
+                    'Tiến độ: ${(progress * 100).toStringAsFixed(0)}%',
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Color(0xFF065F46)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -507,6 +855,8 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
             _infoBox(
               'Hạn nộp hóa đơn: ${DateFormat('dd/MM/yyyy').format(DateTime.parse(_expenditure['evidenceDueAt']))}',
             ),
+          const SizedBox(height: 16),
+          _buildEvidenceStatusCard(),
           const SizedBox(height: 16),
           if (_evidencePreviewUrls.isNotEmpty) ...<Widget>[
             _buildEvidenceGallery(),
@@ -705,6 +1055,76 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
       child: Text(msg,
           style: const TextStyle(
               color: Color(0xFF6B7280), fontSize: 13)),
+    );
+  }
+
+  Widget _buildEvidenceStatusCard() {
+    final bool hasEvidence = _hasEvidencePost && _evidencePostId != null;
+    String submittedAtLabel = '';
+    if (_evidencePostedAt != null && _evidencePostedAt!.trim().isNotEmpty) {
+      final DateTime? d = DateTime.tryParse(_evidencePostedAt!.replaceFirst(' ', 'T'));
+      if (d != null) {
+        submittedAtLabel =
+            '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+      }
+    }
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const Icon(Icons.verified_outlined, size: 18, color: Color(0xFF7C3AED)),
+              const SizedBox(width: 8),
+              const Text(
+                'Minh chứng',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: hasEvidence ? const Color(0xFFECFDF5) : const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  hasEvidence ? 'Đã nộp' : 'Chưa nộp',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: hasEvidence ? const Color(0xFF166534) : const Color(0xFF92400E),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (submittedAtLabel.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 6),
+            Text(
+              'Nộp lúc: $submittedAtLabel',
+              style: const TextStyle(color: Color(0xFF6B7280), fontSize: 12),
+            ),
+          ],
+          if (hasEvidence) ...<Widget>[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => FeedPostDetailScreen(postId: _evidencePostId!),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.open_in_new, size: 16),
+                label: const Text('Xem bài đăng minh chứng'),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 

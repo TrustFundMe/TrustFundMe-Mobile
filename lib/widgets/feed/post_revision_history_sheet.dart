@@ -8,12 +8,20 @@ import '../../core/models/feed_post_revision_model.dart';
 Future<void> showPostRevisionHistorySheet(
   BuildContext context, {
   required int postId,
+  String? currentTitle,
+  String? currentContent,
+  List<RevisionMediaItem>? currentMedia,
 }) async {
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (BuildContext ctx) => _RevisionHistorySheet(postId: postId),
+    builder: (BuildContext ctx) => _RevisionHistorySheet(
+      postId: postId,
+      currentTitle: currentTitle,
+      currentContent: currentContent,
+      currentMedia: currentMedia,
+    ),
   );
 }
 
@@ -159,8 +167,16 @@ int _safeInt(dynamic v, {int fallback = 0}) {
 // ─── Main sheet ──────────────────────────────────────────────────────────────
 
 class _RevisionHistorySheet extends StatefulWidget {
-  const _RevisionHistorySheet({required this.postId});
+  const _RevisionHistorySheet({
+    required this.postId,
+    this.currentTitle,
+    this.currentContent,
+    this.currentMedia,
+  });
   final int postId;
+  final String? currentTitle;
+  final String? currentContent;
+  final List<RevisionMediaItem>? currentMedia;
 
   @override
   State<_RevisionHistorySheet> createState() => _RevisionHistorySheetState();
@@ -259,10 +275,10 @@ class _RevisionHistorySheetState extends State<_RevisionHistorySheet> {
       );
     }
     return _VersionState(
-      title: null,
-      content: '',
-      mediaCount: _liveMedia.length,
-      media: _liveMedia,
+      title: widget.currentTitle,
+      content: widget.currentContent ?? '',
+      mediaCount: (widget.currentMedia ?? _liveMedia).length,
+      media: widget.currentMedia ?? _liveMedia,
     );
   }
 
