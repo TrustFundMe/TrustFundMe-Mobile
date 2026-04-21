@@ -41,6 +41,8 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
   int? _evidencePostId;
   bool _hasEvidencePost = false;
   String? _evidencePostedAt;
+  Map<int, int> _donationSummary = <int, int>{};
+  bool _loadingDonationSummary = false;
   int? _campaignOwnerId;
   final List<XFile> _evidenceImages = <XFile>[];
   final TextEditingController _evidenceNoteCtrl = TextEditingController();
@@ -70,6 +72,22 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
 
   String _vnd(num value) => '${_fmt.format(value)} ₫';
 
+  double _toDouble(dynamic v) {
+    if (v == null) return 0;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString()) ?? 0;
+  }
+
+  double _itemsActualSpentTotal() {
+    double total = 0;
+    for (final dynamic row in _items) {
+      final int qty = (row['actualQuantity'] ?? 0) as int;
+      final double unit = _toDouble(row['price'] ?? row['actualPrice'] ?? row['expectedPrice']);
+      total += unit * qty;
+    }
+    return total;
+  }
+
   String _expenditureTitle() {
     final String rawPlan = (_expenditure['plan'] ?? '').toString().trim();
     if (rawPlan.isNotEmpty) {
@@ -81,20 +99,57 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
   Future<void> _loadItems() async {
     setState(() => _isLoading = true);
     try {
-      final r = await _api.getExpenditureItemsByCampaign(
-        _expenditure['campaignId'] as int,
-      );
+      final r = await _api.getExpenditureItems(_expenditure['id'] as int);
       if (r.statusCode == 200) {
-        // Filter items belonging to this expenditure
         final all = r.data as List<dynamic>;
-        setState(() => _items = all
-            .where((it) => it['expenditureId'] == _expenditure['id'])
-            .toList());
+        setState(() => _items = all);
+        await _loadDonationSummary();
       }
     } catch (e) {
       debugPrint('Load items error: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadDonationSummary() async {
+    if (_items.isEmpty) {
+      if (mounted) {
+        setState(() => _donationSummary = <int, int>{});
+      }
+      return;
+    }
+    final List<int> itemIds = <int>[];
+    for (final dynamic row in _items) {
+      final dynamic rawId = row['id'];
+      final int? id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+      if (id != null) itemIds.add(id);
+    }
+    if (itemIds.isEmpty) return;
+    if (mounted) setState(() => _loadingDonationSummary = true);
+    try {
+      final Response<dynamic> r = await _api.getDonationSummary(itemIds);
+      final dynamic data = r.data;
+      final Map<int, int> next = <int, int>{};
+      if (data is List) {
+        for (final dynamic row in data) {
+          if (row is! Map<String, dynamic>) continue;
+          final int? itemId = row['expenditureItemId'] is int
+              ? row['expenditureItemId'] as int
+              : int.tryParse(row['expenditureItemId']?.toString() ?? '');
+          final int donatedQty = row['donatedQuantity'] is int
+              ? row['donatedQuantity'] as int
+              : int.tryParse(row['donatedQuantity']?.toString() ?? '') ?? 0;
+          if (itemId != null) next[itemId] = donatedQty;
+        }
+      }
+      if (!mounted) return;
+      setState(() => _donationSummary = next);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _donationSummary = <int, int>{});
+    } finally {
+      if (mounted) setState(() => _loadingDonationSummary = false);
     }
   }
 
@@ -137,12 +192,12 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
 
   Future<void> _loadEvidencePreview() async {
     try {
-      final int campaignId = _expenditure['campaignId'] as int;
       final int expenditureId = _expenditure['id'] as int;
-      final Response<dynamic> postsRes = await _api.getFeedPosts(
+      final Response<dynamic> postsRes = await _api.getFeedPostsByTarget(
+        targetId: expenditureId,
+        targetType: 'EXPENDITURE',
         page: 0,
         size: 20,
-        campaignId: campaignId,
       );
       final dynamic payload = postsRes.data;
       if (payload is! Map<String, dynamic>) return;
@@ -421,12 +476,15 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
     final String dueAt = _expenditure['evidenceDueAt']?.toString() ?? '';
     final DateTime? dueDate = dueAt.isNotEmpty ? DateTime.tryParse(dueAt.replaceFirst(' ', 'T')) : null;
     final double totalExpected = (_expenditure['totalExpectedAmount'] ?? 0).toDouble();
-    final double disbursed = (_expenditure['disbursedAmount'] ?? 0).toDouble();
-    final double spent = (_expenditure['spentAmount'] ?? 0).toDouble();
-    final double remaining = (disbursed - spent).clamp(0, double.infinity);
-    final double progress = disbursed > 0 ? (spent / disbursed).clamp(0, 1) : 0;
+    final double totalReceived = _toDouble(_expenditure['totalReceivedAmount'] ?? _expenditure['disbursedAmount']);
+    final double totalActual = _itemsActualSpentTotal();
+    final bool isEvidenceSubmitted = <String>['SUBMITTED', 'APPROVED', 'ALLOWED_EDIT']
+        .contains((_expenditure['evidenceStatus'] ?? '').toString().toUpperCase());
+    final double variance = _toDouble(_expenditure['variance']);
+    final double remaining = isEvidenceSubmitted ? variance : (totalReceived - totalActual).clamp(0, double.infinity);
+    final double progress = totalExpected > 0 ? (totalActual / totalExpected).clamp(0, 1) : 0;
     final String status = (_expenditure['status'] ?? '').toString().toUpperCase();
-    final bool hasEvidence = _hasEvidencePost && _evidencePostId != null;
+    final String statusLabel = status == 'DISBURSED' ? 'Đã giải ngân' : status;
 
     return Column(
       children: <Widget>[
@@ -457,148 +515,101 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
           ),
         ),
         const SizedBox(height: 10),
-        SizedBox(
-          height: 154,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
+        Row(
+          children: <Widget>[
+            Expanded(child: _metricCard('Dự kiến', _vnd(totalExpected))),
+            const SizedBox(width: 10),
+            Expanded(child: _metricCard('Giải ngân', _vnd(totalReceived))),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: <Widget>[
+            Expanded(child: _metricCard('Đã chi', isEvidenceSubmitted ? _vnd(totalActual) : 'Chưa cập nhật')),
+            const SizedBox(width: 10),
+            Expanded(child: _metricCard('Số dư', isEvidenceSubmitted ? _vnd(remaining) : 'Chưa cập nhật')),
+          ],
+        ),
+        const SizedBox(height: 10),
+        _card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              _metricCard('Dự kiến', _vnd(totalExpected), width: 148),
-              _metricCard('Giải ngân', _vnd(disbursed), width: 148),
-              _metricCard('Đã chi', _vnd(spent), width: 148),
-              _metricCard('Số dư', _vnd(remaining), width: 148),
-              Container(
-                width: 210,
-                margin: const EdgeInsets.only(right: 10),
-                child: _card(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          const Text('Trạng thái', style: TextStyle(fontWeight: FontWeight.w700)),
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFECFDF5),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              status == 'DISBURSED' ? 'Đã giải ngân' : status,
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: Color(0xFF166534),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ],
+              Row(
+                children: <Widget>[
+                  const Text('Trạng thái', style: TextStyle(fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFECFDF5),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Color(0xFF166534),
+                        fontWeight: FontWeight.w700,
                       ),
-                      const SizedBox(height: 10),
-                      LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 8,
-                        borderRadius: BorderRadius.circular(999),
-                        backgroundColor: const Color(0xFFE5E7EB),
-                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF065F46)),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '${(progress * 100).toStringAsFixed(0)}% tiến độ sử dụng',
-                        style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+                ],
               ),
-              Container(
-                width: 240,
-                margin: const EdgeInsets.only(right: 4),
-                child: _card(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Row(
-                        children: <Widget>[
-                          const Text('Minh chứng', style: TextStyle(fontWeight: FontWeight.w700)),
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: hasEvidence ? const Color(0xFFECFDF5) : const Color(0xFFFEF3C7),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              hasEvidence ? 'Đã nộp' : 'Chưa nộp',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: hasEvidence ? const Color(0xFF166534) : const Color(0xFF92400E),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Nộp lúc: ${_evidencePostedAt != null ? DateFormat('dd/MM/yyyy').format(DateTime.tryParse(_evidencePostedAt!.replaceFirst(' ', 'T')) ?? DateTime.now()) : '---'}',
-                        style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: hasEvidence
-                              ? () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => FeedPostDetailScreen(postId: _evidencePostId!),
-                                    ),
-                                  );
-                                }
-                              : null,
-                          icon: const Icon(Icons.open_in_new, size: 15),
-                          label: const Text('Xem bài đăng minh chứng'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              const SizedBox(height: 10),
+              LinearProgressIndicator(
+                value: progress,
+                minHeight: 8,
+                borderRadius: BorderRadius.circular(999),
+                backgroundColor: const Color(0xFFE5E7EB),
+                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF065F46)),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${(progress * 100).toStringAsFixed(0)}% tiến độ sử dụng',
+                style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
               ),
             ],
           ),
         ),
+        const SizedBox(height: 10),
+        _buildEvidenceStatusCard(),
       ],
     );
   }
 
-  Widget _metricCard(String label, String value, {double width = 140}) {
-    return Container(
-      width: width,
-      margin: const EdgeInsets.only(right: 10),
-      child: _card(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-            ),
-          ],
-        ),
+  Widget _metricCard(String label, String value) {
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildWebLikeItemsTable() {
     final double totalExpected = (_expenditure['totalExpectedAmount'] ?? 0).toDouble();
-    final double disbursed = (_expenditure['disbursedAmount'] ?? 0).toDouble();
-    final double spent = (_expenditure['spentAmount'] ?? 0).toDouble();
-    final double progress = disbursed > 0 ? (spent / disbursed).clamp(0, 1) : 0;
+    final double totalReceived = _toDouble(_expenditure['totalReceivedAmount'] ?? _expenditure['disbursedAmount']);
+    final double spent = _itemsActualSpentTotal();
+    final bool isEvidenceSubmitted = <String>['SUBMITTED', 'APPROVED', 'ALLOWED_EDIT']
+        .contains((_expenditure['evidenceStatus'] ?? '').toString().toUpperCase());
+    double donatedAmount = 0;
+    for (final dynamic it in _items) {
+      final int itemId = (it['id'] ?? 0) as int;
+      final int donatedQty = _donationSummary[itemId] ?? 0;
+      final double expectedPrice = (it['expectedPrice'] ?? 0).toDouble();
+      donatedAmount += donatedQty * expectedPrice;
+    }
+    final double progress = totalExpected > 0 ? (totalReceived / totalExpected).clamp(0, 1) : 0;
     return _card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -614,76 +625,137 @@ class _ExpenditureDetailScreenState extends State<ExpenditureDetailScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowHeight: 36,
-              dataRowMinHeight: 44,
-              dataRowMaxHeight: 48,
-              horizontalMargin: 8,
-              columnSpacing: 18,
-              columns: const <DataColumn>[
-                DataColumn(label: Text('STT')),
-                DataColumn(label: Text('Hạng mục')),
-                DataColumn(label: Text('Kế hoạch')),
-                DataColumn(label: Text('Đã chi')),
-                DataColumn(label: Text('Tiến độ')),
-              ],
-              rows: _items.asMap().entries.map((entry) {
-                final int idx = entry.key;
-                final dynamic it = entry.value;
-                final double expectedPrice = (it['expectedPrice'] ?? 0).toDouble();
-                final int quantity = (it['quantity'] ?? 1) as int;
-                final double planned = expectedPrice * quantity;
-                final double actualUnit = (it['actualPrice'] ?? expectedPrice).toDouble();
-                final double actual = actualUnit * quantity;
-                final double ratio = planned > 0 ? (actual / planned).clamp(0, 1) : 0;
-                return DataRow(
-                  cells: <DataCell>[
-                    DataCell(Text('${idx + 1}')),
-                    DataCell(SizedBox(
-                      width: 122,
-                      child: Text(
-                        (it['category'] ?? '—').toString(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    )),
-                    DataCell(Text(_vnd(planned))),
-                    DataCell(Text(_vnd(actual))),
-                    DataCell(SizedBox(
-                      width: 92,
-                      child: LinearProgressIndicator(
-                        value: ratio,
-                        minHeight: 8,
-                        borderRadius: BorderRadius.circular(999),
-                        backgroundColor: const Color(0xFFE5E7EB),
-                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF065F46)),
-                      ),
-                    )),
+          if (_items.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'Chưa có hạng mục chi tiêu.',
+                style: TextStyle(color: Color(0xFF6B7280), fontSize: 13),
+              ),
+            )
+          else
+            ..._items.asMap().entries.map((entry) {
+              final int idx = entry.key;
+              final dynamic it = entry.value;
+              final int itemId = (it['id'] ?? 0) as int;
+              final int donatedQty = _donationSummary[itemId] ?? 0;
+              final double expectedPrice = (it['expectedPrice'] ?? 0).toDouble();
+              final int quantity = (it['quantity'] ?? 1) as int;
+              final int actualQty = (it['actualQuantity'] ?? 0) as int;
+              final double actualUnit = (it['price'] ?? it['actualPrice'] ?? expectedPrice).toDouble();
+              final double ratio = quantity > 0 ? (donatedQty / quantity).clamp(0, 1) : 0;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF9FAFB),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE5E7EB)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Container(
+                          width: 22,
+                          height: 22,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '${idx + 1}',
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            (it['category'] ?? '—').toString(),
+                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            'Kế hoạch: $quantity x ${_vnd(expectedPrice)}',
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            'Quyên góp: $donatedQty x ${_vnd(expectedPrice)}',
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            'Đã chi: $actualQty x ${_vnd(actualUnit)}',
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isEvidenceSubmitted ? const Color(0xFF111827) : const Color(0xFF9CA3AF),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    LinearProgressIndicator(
+                      value: ratio,
+                      minHeight: 8,
+                      borderRadius: BorderRadius.circular(999),
+                      backgroundColor: const Color(0xFFE5E7EB),
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF065F46)),
+                    ),
                   ],
-                );
-              }).toList(),
-            ),
-          ),
+                ),
+              );
+            }),
           const SizedBox(height: 10),
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: const Color(0xFFF9FAFB),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: const Color(0xFFE5E7EB)),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Expanded(child: Text('Dự kiến: ${_vnd(totalExpected)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12))),
-                Expanded(child: Text('Đã chi: ${_vnd(spent)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12))),
-                Expanded(
-                  child: Text(
-                    'Tiến độ: ${(progress * 100).toStringAsFixed(0)}%',
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Color(0xFF065F46)),
-                  ),
+                Text('Dự kiến: ${_vnd(totalExpected)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                const SizedBox(height: 4),
+                Text('Quyên góp: ${_vnd(donatedAmount)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                const SizedBox(height: 4),
+                Text('Rút thêm: ${_vnd((totalReceived - donatedAmount).clamp(0, double.infinity))}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                const SizedBox(height: 4),
+                Text('Giải ngân: ${_vnd(totalReceived)}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                const SizedBox(height: 4),
+                Text('Đã chi: ${isEvidenceSubmitted ? _vnd(spent) : 'Chưa cập nhật'}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                const SizedBox(height: 4),
+                Text('Số dư: ${isEvidenceSubmitted ? _vnd(_toDouble(_expenditure['variance'])) : 'Chưa cập nhật'}', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                const SizedBox(height: 4),
+                Text(
+                  'Tiến độ: ${(progress * 100).toStringAsFixed(0)}%${_loadingDonationSummary ? ' - đang tải quyên góp...' : ''}',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Color(0xFF065F46)),
                 ),
               ],
             ),

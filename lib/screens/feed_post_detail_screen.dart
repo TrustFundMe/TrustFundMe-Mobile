@@ -457,7 +457,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final AuthProvider auth = context.watch<AuthProvider>();
-    final double bottomMenuInset = MediaQuery.of(context).viewPadding.bottom + 72;
+    final double bottomMenuInset = MediaQuery.of(context).viewPadding.bottom ;
     final double mediaImageCap =
         (MediaQuery.sizeOf(context).height * 0.26).clamp(160.0, 220.0);
     final bool isOwner =

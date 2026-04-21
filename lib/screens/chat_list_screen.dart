@@ -15,6 +15,7 @@ class ChatListScreen extends StatefulWidget {
 class _ChatListScreenState extends State<ChatListScreen> {
   final ApiService _api = ApiService();
   List<Conversation> _conversations = [];
+  final Map<int, String> _campaignTitleOverrides = <int, String>{};
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -34,11 +35,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
       final res = await _api.getConversations().timeout(const Duration(seconds: 10));
       if (res.statusCode == 200) {
         final List<dynamic> data = res.data;
+        final List<Conversation> conversations =
+            data.map((c) => Conversation.fromJson(c)).toList();
         if (mounted) {
           setState(() {
-            _conversations = data.map((c) => Conversation.fromJson(c)).toList();
+            _conversations = conversations;
           });
         }
+        await _resolveCampaignTitles(conversations);
       } else {
         if (mounted) {
           setState(() => _errorMessage = "Lỗi hệ thống (${res.statusCode})");
@@ -54,6 +58,34 @@ class _ChatListScreenState extends State<ChatListScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  bool _looksLikeFallbackIdTitle(String? title, int campaignId) {
+    final String t = (title ?? '').trim().toLowerCase();
+    return t.isEmpty || t.contains('#$campaignId');
+  }
+
+  Future<void> _resolveCampaignTitles(List<Conversation> conversations) async {
+    final Set<int> missingCampaignIds = conversations
+        .where((Conversation c) => _looksLikeFallbackIdTitle(c.campaignTitle, c.campaignId))
+        .map((Conversation c) => c.campaignId)
+        .toSet();
+    if (missingCampaignIds.isEmpty) return;
+
+    final Map<int, String> resolved = <int, String>{};
+    for (final int campaignId in missingCampaignIds) {
+      try {
+        final response = await _api.getCampaign(campaignId);
+        final dynamic payload = response.data;
+        if (payload is! Map<String, dynamic>) continue;
+        final String title = (payload['title'] as String?)?.trim() ?? '';
+        if (title.isNotEmpty) {
+          resolved[campaignId] = title;
+        }
+      } catch (_) {}
+    }
+    if (!mounted || resolved.isEmpty) return;
+    setState(() => _campaignTitleOverrides.addAll(resolved));
   }
 
   @override
@@ -87,7 +119,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     separatorBuilder: (context, index) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final conv = _conversations[index];
-                      return _ConversationCard(conversation: conv);
+                      return _ConversationCard(
+                        conversation: conv,
+                        campaignTitleOverride: _campaignTitleOverrides[conv.campaignId],
+                      );
                     },
                   ),
       ),
@@ -139,14 +174,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
 class _ConversationCard extends StatelessWidget {
   final Conversation conversation;
+  final String? campaignTitleOverride;
 
-  const _ConversationCard({required this.conversation});
+  const _ConversationCard({
+    required this.conversation,
+    this.campaignTitleOverride,
+  });
 
   @override
   Widget build(BuildContext context) {
     final String campaignTitle =
-        (conversation.campaignTitle ?? '').trim().isNotEmpty
-            ? conversation.campaignTitle!.trim()
+        (campaignTitleOverride ?? conversation.campaignTitle ?? '').trim().isNotEmpty
+            ? (campaignTitleOverride ?? conversation.campaignTitle!).trim()
             : "Chiến dịch #${conversation.campaignId}";
 
     return InkWell(

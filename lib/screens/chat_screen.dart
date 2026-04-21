@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import '../core/api/api_service.dart';
 import '../core/providers/chat_provider.dart';
 import '../core/models/chat_models.dart';
 
@@ -26,13 +27,35 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final ApiService _api = ApiService();
+  late String _displayCampaignTitle;
+  int _lastMessageCount = 0;
 
   @override
   void initState() {
     super.initState();
+    _displayCampaignTitle = widget.campaignTitle;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ChatProvider>().initConversation(widget.campaignId, widget.staffId);
     });
+    _resolveCampaignTitleIfNeeded();
+  }
+
+  bool _looksLikeFallbackIdTitle(String title) {
+    final String t = title.trim().toLowerCase();
+    return t.isEmpty || t.contains('#${widget.campaignId}');
+  }
+
+  Future<void> _resolveCampaignTitleIfNeeded() async {
+    if (!_looksLikeFallbackIdTitle(widget.campaignTitle)) return;
+    try {
+      final response = await _api.getCampaign(widget.campaignId);
+      final dynamic data = response.data;
+      if (data is! Map<String, dynamic>) return;
+      final String title = (data['title'] as String?)?.trim() ?? '';
+      if (!mounted || title.isEmpty) return;
+      setState(() => _displayCampaignTitle = title);
+    } catch (_) {}
   }
 
   void _scrollToBottom() {
@@ -48,9 +71,12 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final chatProvider = context.watch<ChatProvider>();
-    
-    // Auto scroll to bottom when new messages arrive
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    final int currentMessageCount = chatProvider.messages.length;
+    if (currentMessageCount != _lastMessageCount) {
+      _lastMessageCount = currentMessageCount;
+      // Only auto-scroll when message list changes; avoid jank on keyboard open.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4F8),
@@ -65,7 +91,7 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "Chiến dịch: ${widget.campaignTitle}",
+              "Chiến dịch: $_displayCampaignTitle",
               style: const TextStyle(
                 color: Color(0xFF1E293B),
                 fontSize: 16,
@@ -125,6 +151,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     : ListView.builder(
                         controller: _scrollController,
                         padding: const EdgeInsets.all(16),
+                        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                         itemCount: chatProvider.messages.length,
                         itemBuilder: (context, index) {
                           final msg = chatProvider.messages[index];

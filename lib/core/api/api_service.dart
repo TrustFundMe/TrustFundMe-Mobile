@@ -89,6 +89,25 @@ class ApiService {
     );
   }
 
+  Future<Response<dynamic>> getFeedPostsByTarget({
+    required int targetId,
+    required String targetType,
+    int page = 0,
+    int size = 20,
+    String sort = 'createdAt,desc',
+  }) async {
+    return _dio.get(
+      '${ApiConfig.campaignUrl}/feed-posts',
+      queryParameters: <String, dynamic>{
+        'targetId': targetId,
+        'targetType': targetType,
+        'page': page,
+        'size': size,
+        'sort': sort,
+      },
+    );
+  }
+
   Future<Response<dynamic>> getMyFeedPosts({
     String status = 'ALL',
     int page = 0,
@@ -503,6 +522,12 @@ class ApiService {
     );
   }
 
+  Future<Response<dynamic>> getExpenditureItems(int expenditureId) async {
+    return _dio.get(
+      '${ApiConfig.campaignUrl}/expenditures/$expenditureId/items',
+    );
+  }
+
   Future<Response<dynamic>> getApprovedExpenditureItemsByCampaign(
     int campaignId,
   ) async {
@@ -616,6 +641,19 @@ class ApiService {
 
   Future<Response<dynamic>> syncDonationBalance(int donationId) async {
     return _dio.post('${ApiConfig.paymentUrl}/donation/$donationId/sync-balance');
+  }
+
+  Future<Response<dynamic>> getDonationSummary(List<int> expenditureItemIds) async {
+    return _dio.get(
+      '${ApiConfig.paymentUrl}/donations/summary',
+      queryParameters: <String, dynamic>{
+        'expenditureItemIds': expenditureItemIds.join(','),
+      },
+    );
+  }
+
+  Future<Response<dynamic>> getDonorsByItem(int itemId) async {
+    return _dio.get('${ApiConfig.paymentUrl}/expenditure-item/$itemId/donors');
   }
 
   Future<Response<dynamic>> getCampaignProgress(int campaignId) async {

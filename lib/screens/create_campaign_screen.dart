@@ -1472,7 +1472,7 @@ class _CreateCampaignScreenState extends State<CreateCampaignScreen> {
   Widget _buildBottomNavigation() {
     final double bottomInset = MediaQuery.of(context).viewPadding.bottom;
     return Container(
-      padding: EdgeInsets.fromLTRB(24, 16, 24, 24 + bottomInset + 56),
+      padding: EdgeInsets.fromLTRB(24, 16, 24, 24 + bottomInset),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
