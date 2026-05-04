@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
-import 'campaigns_screen.dart';
-import 'community_screen.dart';
-import 'create_campaign_screen.dart';
-import 'profile_screen.dart';
+import 'feed/community_feed_screen.dart';
+import 'chat_list_screen.dart';
+import 'account/account_screen.dart';
 
+/// Main screen với 4 tabs: Trang chủ | Cộng đồng | Chat | Tài khoản
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key, this.initialIndex = 0});
   final int initialIndex;
@@ -16,29 +16,20 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
 
-  static const List<Widget> _screens = [
+  static const List<Widget> _screens = <Widget>[
     HomeScreen(),
-    CampaignsScreen(),
-    SizedBox.shrink(),
-    CommunityScreen(),
-    ProfileScreen(),
+    CommunityFeedScreen(),
+    ChatListScreen(),
+    AccountScreen(),
   ];
 
   @override
   void initState() {
     super.initState();
-    _selectedIndex = widget.initialIndex.clamp(0, 4);
+    _selectedIndex = widget.initialIndex.clamp(0, 3);
   }
 
   void _onItemTapped(int index) {
-    if (index == 2) {
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => const CreateCampaignScreen(),
-        ),
-      );
-      return;
-    }
     setState(() {
       _selectedIndex = index;
     });
@@ -58,43 +49,32 @@ class _MainScreenState extends State<MainScreen> {
           currentIndex: _selectedIndex,
           onTap: _onItemTapped,
           type: BottomNavigationBarType.fixed,
-          selectedItemColor: const Color(0xFFF84D43), // webPrimary
+          selectedItemColor: const Color(0xFFF84D43),
           unselectedItemColor: Colors.grey,
           showSelectedLabels: true,
           showUnselectedLabels: true,
-          items: const [
+          selectedFontSize: 12,
+          unselectedFontSize: 12,
+          items: const <BottomNavigationBarItem>[
             BottomNavigationBarItem(
               icon: Icon(Icons.home_outlined),
               activeIcon: Icon(Icons.home),
-              label: "Trang chủ",
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.volunteer_activism_outlined),
-              activeIcon: Icon(Icons.volunteer_activism),
-              label: "Chiến dịch",
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(
-                Icons.add_circle_rounded,
-                size: 34,
-                color: Color(0xFFF84D43),
-              ),
-              activeIcon: Icon(
-                Icons.add_circle_rounded,
-                size: 34,
-                color: Color(0xFFF84D43),
-              ),
-              label: "",
+              label: 'Trang chủ',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.groups_outlined),
               activeIcon: Icon(Icons.groups),
-              label: "Cộng đồng",
+              label: 'Cộng đồng',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.chat_bubble_outline),
+              activeIcon: Icon(Icons.chat_bubble),
+              label: 'Chat',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.person_outline),
               activeIcon: Icon(Icons.person),
-              label: "Cá nhân",
+              label: 'Tài khoản',
             ),
           ],
         ),

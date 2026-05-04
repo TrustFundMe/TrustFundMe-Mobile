@@ -46,17 +46,54 @@ class CreatePaymentRequestModel {
       };
 }
 
+class PaymentResponseModel {
+  final String? paymentUrl;
+  final String? qrCode;
+  final String? paymentLinkId;
+  final int? donationId;
+  final int? campaignId;
+  final double? donationAmount;
+  final double? totalAmount;
+  final String? status;
+
+  PaymentResponseModel({
+    this.paymentUrl,
+    this.qrCode,
+    this.paymentLinkId,
+    this.donationId,
+    this.campaignId,
+    this.donationAmount,
+    this.totalAmount,
+    this.status,
+  });
+
+  factory PaymentResponseModel.fromJson(Map<String, dynamic> json) {
+    return PaymentResponseModel(
+      paymentUrl: json['paymentUrl'] as String?,
+      qrCode: json['qrCode'] as String?,
+      paymentLinkId: json['paymentLinkId'] as String?,
+      donationId: (json['donationId'] as num?)?.toInt(),
+      campaignId: (json['campaignId'] as num?)?.toInt(),
+      donationAmount: (json['donationAmount'] as num?)?.toDouble(),
+      totalAmount: (json['totalAmount'] as num?)?.toDouble(),
+      status: json['status'] as String?,
+    );
+  }
+}
+
 class CampaignProgressModel {
   final int campaignId;
   final int raisedAmount;
   final int goalAmount;
   final int progressPercentage;
+  final int donorCount;
 
   CampaignProgressModel({
     required this.campaignId,
     required this.raisedAmount,
     required this.goalAmount,
     required this.progressPercentage,
+    this.donorCount = 0,
   });
 
   factory CampaignProgressModel.fromJson(Map<String, dynamic> json) {
@@ -65,6 +102,7 @@ class CampaignProgressModel {
       raisedAmount: (json['raisedAmount'] as num?)?.toInt() ?? 0,
       goalAmount: (json['goalAmount'] as num?)?.toInt() ?? 0,
       progressPercentage: json['progressPercentage'] as int? ?? 0,
+      donorCount: (json['donorCount'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -106,7 +144,6 @@ class RecentDonorModel {
     if (rawCreated is String) {
       createdAt = rawCreated;
     } else if (rawCreated is List && rawCreated.length >= 3) {
-      // Một s cấu hình Jackson trả LocalDateTime dạng mảng
       createdAt = rawCreated.toString();
     }
     return RecentDonorModel(
@@ -121,3 +158,67 @@ class RecentDonorModel {
   }
 }
 
+/// Model cho expenditure (đợt chi tiêu / milestone)
+class ExpenditurePlanModel {
+  final int id;
+  final String title;
+  final int amount;
+  final String? description;
+  final String? date;
+  final String? status;
+  final String? startDate;
+  final String? endDate;
+  final int totalItems;
+  final List<ExpenditureCategoryModel> categories;
+
+  ExpenditurePlanModel({
+    required this.id,
+    required this.title,
+    required this.amount,
+    this.description,
+    this.date,
+    this.status,
+    this.startDate,
+    this.endDate,
+    this.totalItems = 0,
+    this.categories = const [],
+  });
+}
+
+class ExpenditureCategoryModel {
+  final int? id;
+  final String name;
+  final String? description;
+  final int expectedAmount;
+  final int actualAmount;
+  final List<ExpenditureCategoryItemModel> items;
+
+  ExpenditureCategoryModel({
+    this.id,
+    required this.name,
+    this.description,
+    this.expectedAmount = 0,
+    this.actualAmount = 0,
+    this.items = const [],
+  });
+}
+
+class ExpenditureCategoryItemModel {
+  final int? id;
+  final String name;
+  final int expectedQuantity;
+  final int expectedPrice;
+  final int actualQuantity;
+  final int price;
+  final String? note;
+
+  ExpenditureCategoryItemModel({
+    this.id,
+    required this.name,
+    this.expectedQuantity = 0,
+    this.expectedPrice = 0,
+    this.actualQuantity = 0,
+    this.price = 0,
+    this.note,
+  });
+}

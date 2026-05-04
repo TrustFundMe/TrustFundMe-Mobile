@@ -74,4 +74,9 @@ class MediaService extends BaseService {
       data: <String, dynamic>{'campaignId': campaignId},
     );
   }
+
+  /// Lấy tất cả media theo campaign ID.
+  Future<Response<dynamic>> getMediaByCampaignId(int campaignId) async {
+    return dio.get('$mediaUrl/media/campaign/$campaignId');
+  }
 }

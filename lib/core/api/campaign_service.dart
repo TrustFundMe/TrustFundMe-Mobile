@@ -10,6 +10,26 @@ class CampaignService extends BaseService {
     return dio.get('$campaignUrl/campaigns');
   }
 
+  /// Lấy campaigns có phân trang, filter category, tìm kiếm.
+  Future<Response<dynamic>> getCampaignsPaginated({
+    int page = 0,
+    int size = 10,
+    int? categoryId,
+    String? search,
+    String? status,
+    String sort = 'createdAt,desc',
+  }) async {
+    final Map<String, dynamic> q = <String, dynamic>{
+      'page': page,
+      'size': size,
+      'sort': sort,
+    };
+    if (categoryId != null) q['categoryId'] = categoryId;
+    if (search != null && search.isNotEmpty) q['search'] = search;
+    if (status != null && status.isNotEmpty) q['status'] = status;
+    return dio.get('$campaignUrl/campaigns', queryParameters: q);
+  }
+
   /// Lấy campaign theo ID.
   Future<Response<dynamic>> getCampaign(int id) async {
     return dio.get('$campaignUrl/campaigns/$id');

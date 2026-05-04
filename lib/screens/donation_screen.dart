@@ -10,6 +10,7 @@ import '../core/providers/auth_provider.dart';
 import 'donation_success_screen.dart';
 import 'donation_terms_screen.dart';
 import 'donation_webview_screen.dart';
+import 'donation/vietqr_screen.dart';
 
 class DonationScreen extends StatefulWidget {
   final CampaignModel campaign;
@@ -227,53 +228,74 @@ class _DonationScreenState extends State<DonationScreen> {
       final int? donationId = (data['donationId'] as num?)?.toInt();
 
       if (paymentUrl != null && mounted) {
-        final dynamic webViewResult = await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (BuildContext context) =>
-                DonationWebViewScreen(
-              paymentUrl: paymentUrl,
-              donationId: donationId,
-            ),
-          ),
-        );
+        final String? orderCode = data['paymentLinkId'] as String?;
 
-        if (!mounted) return;
-
-        final Map<String, dynamic>? result =
-            webViewResult is Map<String, dynamic> ? webViewResult : null;
-        final bool isSuccess = result?['success'] == true;
-        final int? completedDonationId =
-            (result?['donationId'] as num?)?.toInt() ?? donationId;
-
-        if (isSuccess && completedDonationId != null) {
-          try {
-            await _api.verifyDonationPayment(completedDonationId);
-          } catch (_) {}
-          // Match web flow: sync item quantities + campaign balance
-          // after payment verification, but do not block success screen.
-          try {
-            await _api.syncDonationQuantity(completedDonationId);
-          } catch (_) {}
-          try {
-            await _api.syncDonationBalance(completedDonationId);
-          } catch (_) {}
-          if (!mounted) return;
-          final bool? goBackWithRefresh = await Navigator.of(context).push<bool>(
-            MaterialPageRoute<bool>(
-              builder: (_) => DonationSuccessScreen(
+        // Thử VietQR flow trước (QR image URL)
+        if (donationId != null) {
+          final dynamic result = await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => VietQRScreen(
+                qrUrl: paymentUrl,
+                donationId: donationId,
+                orderCode: orderCode,
+                amount: _donationAmount + _tipAmount,
                 campaignTitle: widget.campaign.title,
-                totalAmount: _donationAmount + _tipAmount,
               ),
             ),
           );
+
           if (!mounted) return;
-          if (goBackWithRefresh == true) {
+          if (result == true) {
             Navigator.of(context).pop(true);
           }
-        } else if (result != null && result['success'] == false) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Bạn đã hủy thanh toán')),
+        } else {
+          // Fallback: WebView nếu không có donationId
+          final dynamic webViewResult = await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (BuildContext context) =>
+                  DonationWebViewScreen(
+                paymentUrl: paymentUrl,
+                donationId: donationId,
+              ),
+            ),
           );
+
+          if (!mounted) return;
+
+          final Map<String, dynamic>? result =
+              webViewResult is Map<String, dynamic> ? webViewResult : null;
+          final bool isSuccess = result?['success'] == true;
+          final int? completedDonationId =
+              (result?['donationId'] as num?)?.toInt() ?? donationId;
+
+          if (isSuccess && completedDonationId != null) {
+            try {
+              await _api.verifyDonationPayment(completedDonationId);
+            } catch (_) {}
+            try {
+              await _api.syncDonationQuantity(completedDonationId);
+            } catch (_) {}
+            try {
+              await _api.syncDonationBalance(completedDonationId);
+            } catch (_) {}
+            if (!mounted) return;
+            final bool? goBackWithRefresh = await Navigator.of(context).push<bool>(
+              MaterialPageRoute<bool>(
+                builder: (_) => DonationSuccessScreen(
+                  campaignTitle: widget.campaign.title,
+                  totalAmount: _donationAmount + _tipAmount,
+                ),
+              ),
+            );
+            if (!mounted) return;
+            if (goBackWithRefresh == true) {
+              Navigator.of(context).pop(true);
+            }
+          } else if (result != null && result['success'] == false) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Bạn đã hủy thanh toán')),
+            );
+          }
         }
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

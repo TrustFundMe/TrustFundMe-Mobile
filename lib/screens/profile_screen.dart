@@ -14,6 +14,9 @@ import 'my_flags_screen.dart';
 import 'my_feed_screen.dart';
 import 'kyc/kyc_screen.dart';
 import 'notifications/notification_screen.dart';
+import 'account/donation_history_screen.dart';
+import 'account/bank_accounts_screen.dart';
+import 'account/change_password_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -527,6 +530,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     icon: Icons.flag_outlined,
                     title: "Tố cáo của tôi",
                     onTap: () => showMyFlagsBottomSheet(context),
+                  ),
+                  _buildQuickAction(
+                    icon: Icons.history,
+                    title: "Lịch sử quyên góp",
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const DonationHistoryScreen()),
+                      );
+                    },
+                  ),
+                  _buildQuickAction(
+                    icon: Icons.account_balance_outlined,
+                    title: "Tài khoản ngân hàng",
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const BankAccountsScreen()),
+                      );
+                    },
+                  ),
+                  _buildQuickAction(
+                    icon: Icons.lock_outline,
+                    title: "Đổi mật khẩu",
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
+                      );
+                    },
                   ),
                 ],
               ),

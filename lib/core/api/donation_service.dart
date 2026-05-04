@@ -78,4 +78,14 @@ class DonationService extends BaseService {
       queryParameters: <String, dynamic>{'quantity': quantity},
     );
   }
+
+  /// Lấy thông tin donation theo ID.
+  Future<Response<dynamic>> getDonation(int donationId) async {
+    return dio.get('$paymentUrl/donation/$donationId');
+  }
+
+  /// Hủy donation.
+  Future<Response<dynamic>> cancelDonation(int donationId) async {
+    return dio.post('$paymentUrl/donation/$donationId/cancel');
+  }
 }

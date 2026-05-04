@@ -1,17 +1,16 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
-
-import 'campaigns_screen.dart';
-import 'campaign_detail_screen.dart';
-import 'create_campaign_screen.dart';
-import '../core/providers/auth_provider.dart';
-import '../core/api/api_service.dart';
-import '../core/models/campaign_model.dart';
-import '../core/models/payment_models.dart';
 import 'package:intl/intl.dart';
 
+import '../core/api/campaign_service.dart';
+import '../core/api/donation_service.dart';
+import '../core/models/campaign_model.dart';
+import '../core/models/campaign_category_model.dart';
+import '../core/models/payment_models.dart';
+import '../core/providers/auth_provider.dart';
+import 'campaign_detail_screen.dart';
+
+/// Home Screen với search, categories filter, campaign cards, pagination, FAB.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -20,717 +19,725 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final ApiService _api = ApiService();
-  bool _loading = true;
+  // ─── Constants ──────────────────────────────────────────────────────────────
+  static const Color _primary = Color(0xFFF84D43);
+  static const Color _bgGray = Color(0xFFF9FAFB);
+  static const Color _textDark = Color(0xFF1F2937);
+  static const Color _textGray = Color(0xFF6B7280);
+
+  // ─── Services ──────────────────────────────────────────────────────────────
+  final CampaignService _campaignSvc = CampaignService();
+  final DonationService _donationSvc = DonationService();
+
+  // ─── State ─────────────────────────────────────────────────────────────────
+  final ScrollController _scrollCtrl = ScrollController();
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  List<CampaignCategoryModel> _categories = <CampaignCategoryModel>[];
+  int? _selectedCategoryId; // null = "Tất cả"
+  String _searchQuery = '';
+
   List<CampaignModel> _campaigns = <CampaignModel>[];
-  final Map<int, CampaignProgressModel> _progressByCampaign =
+  final Map<int, CampaignProgressModel> _progressMap =
       <int, CampaignProgressModel>{};
+
+  bool _loading = true;
+  bool _loadingMore = false;
+  bool _categoriesLoading = true;
+  int _page = 0;
+  bool _hasMore = true;
+  String? _errorMsg;
 
   @override
   void initState() {
     super.initState();
-    _fetchCampaigns();
-  }
-
-  Future<void> _fetchCampaigns() async {
-    setState(() => _loading = true);
-    try {
-      final response = await _api.getCampaigns();
-      final dynamic raw = response.data;
-
-      // Logic from CampaignsScreen to extract list
-      List<dynamic> data = [];
-      if (raw is List<dynamic>) {
-        data = raw;
-      } else if (raw is Map<String, dynamic>) {
-        final dynamic d = raw['data'];
-        if (d is List<dynamic>) {
-          data = d;
-        } else if (d is Map<String, dynamic>) {
-          final dynamic nc = d['content'];
-          if (nc is List<dynamic>) data = nc;
-        } else if (raw['content'] is List<dynamic>) {
-          data = raw['content'];
-        }
-      }
-
-      final List<CampaignModel> parsed = data
-          .map((e) => CampaignModel.fromJson(e as Map<String, dynamic>))
-          .toList();
-      
-      if (!mounted) return;
-      setState(() {
-        _campaigns = parsed;
-        _loading = false;
-      });
-      _fetchProgressInBackground(parsed);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _fetchProgressInBackground(List<CampaignModel> campaigns) async {
-    // Only fetch for first 5 to avoid too many requests on Home
-    final List<CampaignModel> top = campaigns.take(5).toList();
-    for (final CampaignModel c in top) {
-      try {
-        final progressRes = await _api.getCampaignProgress(c.id);
-        final CampaignProgressModel progress = CampaignProgressModel.fromJson(
-          progressRes.data as Map<String, dynamic>,
-        );
-        if (!mounted) return;
-        setState(() {
-          _progressByCampaign[c.id] = progress;
-        });
-      } catch (_) {}
-    }
+    _scrollCtrl.addListener(_onScroll);
+    _loadCategories();
+    _loadCampaigns(refresh: true);
   }
 
   @override
+  void dispose() {
+    _scrollCtrl.removeListener(_onScroll);
+    _scrollCtrl.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  // ─── Data loading ─────────────────────────────────────────────────────────
+  Future<void> _loadCategories() async {
+    try {
+      final res = await _campaignSvc.getCategories();
+      final dynamic data = res.data;
+      List<dynamic> list = <dynamic>[];
+      if (data is List) {
+        list = data;
+      } else if (data is Map<String, dynamic>) {
+        list = (data['content'] ?? data['data'] ?? <dynamic>[]) as List<dynamic>;
+      }
+      if (!mounted) return;
+      setState(() {
+        _categories = list
+            .whereType<Map<String, dynamic>>()
+            .map(CampaignCategoryModel.fromJson)
+            .toList();
+        _categoriesLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _categoriesLoading = false);
+    }
+  }
+
+  Future<void> _loadCampaigns({bool refresh = false}) async {
+    if (refresh) {
+      _page = 0;
+      _hasMore = true;
+      _errorMsg = null;
+    }
+    if (!_hasMore && !refresh) return;
+
+    if (mounted) {
+      setState(() {
+        if (refresh) {
+          _loading = true;
+        } else {
+          _loadingMore = true;
+        }
+      });
+    }
+
+    try {
+      final res = await _campaignSvc.getCampaignsPaginated(
+        page: refresh ? 0 : _page,
+        size: 10,
+        categoryId: _selectedCategoryId,
+        search: _searchQuery.isEmpty ? null : _searchQuery,
+        status: 'APPROVED',
+      );
+
+      final dynamic raw = res.data;
+      List<dynamic> content = <dynamic>[];
+      int totalPages = 1;
+
+      if (raw is List) {
+        content = raw;
+      } else if (raw is Map<String, dynamic>) {
+        // Try multiple response structures
+        final dynamic d = raw['data'];
+        if (d is List) {
+          content = d;
+        } else if (d is Map<String, dynamic>) {
+          content = (d['content'] as List<dynamic>?) ?? <dynamic>[];
+          totalPages = (d['totalPages'] as num?)?.toInt() ?? 1;
+        } else if (raw['content'] is List) {
+          content = raw['content'] as List<dynamic>;
+          totalPages = (raw['totalPages'] as num?)?.toInt() ?? 1;
+        }
+      }
+
+      final List<CampaignModel> chunk = content
+          .whereType<Map<String, dynamic>>()
+          .map(CampaignModel.fromJson)
+          .toList();
+
+      if (!mounted) return;
+      setState(() {
+        if (refresh) {
+          _campaigns = chunk;
+          _progressMap.clear();
+          _page = 1;
+        } else {
+          _campaigns.addAll(chunk);
+          _page += 1;
+        }
+        _hasMore = (refresh ? 1 : _page) < totalPages;
+        _loading = false;
+        _loadingMore = false;
+      });
+
+      // Load progress in background
+      _loadProgressInBackground(chunk);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadingMore = false;
+        _errorMsg = 'Không tải được chiến dịch. Vui lòng thử lại.';
+      });
+    }
+  }
+
+  Future<void> _loadProgressInBackground(List<CampaignModel> campaigns) async {
+    for (final CampaignModel c in campaigns) {
+      if (_progressMap.containsKey(c.id)) continue;
+      try {
+        final res = await _donationSvc.getCampaignProgress(c.id);
+        if (res.data is Map<String, dynamic>) {
+          final progress =
+              CampaignProgressModel.fromJson(res.data as Map<String, dynamic>);
+          if (!mounted) return;
+          setState(() => _progressMap[c.id] = progress);
+        }
+      } catch (_) {
+        // Silent fail for background data
+      }
+    }
+  }
+
+  void _onScroll() {
+    if (!_hasMore || _loadingMore || _loading) return;
+    if (_scrollCtrl.position.pixels >
+        _scrollCtrl.position.maxScrollExtent - 300) {
+      _loadCampaigns();
+    }
+  }
+
+  void _onCategorySelected(int? categoryId) {
+    if (_selectedCategoryId == categoryId) return;
+    setState(() => _selectedCategoryId = categoryId);
+    _loadCampaigns(refresh: true);
+  }
+
+  void _onSearch(String query) {
+    _searchQuery = query.trim();
+    _loadCampaigns(refresh: true);
+  }
+
+  // ─── Build ────────────────────────────────────────────────────────────────
+  @override
   Widget build(BuildContext context) {
-    const Color webEmerald = Color(0xFF1A685B);
-    const Color webPrimary = Color(0xFFF84D43);
-    const Color webBgGray = Color(0xFFF9FAFB);
-    const Color webTextDark = Color(0xFF1F2937);
-    const Color webTextGray = Color(0xFF4B5563);
+    final auth = context.watch<AuthProvider>();
 
     return Scaffold(
-      backgroundColor: webBgGray,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: Image.asset(
-          'assets/images/black-logo.png',
-          height: 32,
-          fit: BoxFit.contain,
-        ).animate().fadeIn(duration: 600.ms).slideX(begin: -0.2),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_none, color: webTextDark),
-            onPressed: () {},
-          ).animate().fadeIn(delay: 200.ms),
-        ],
-      ),
-      body: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: Column(
-          children: [
-            // 1. Hero section
-            _buildHero(context, webPrimary, webTextDark, webTextGray, webEmerald),
-
-            // 2. About Us section
-            _buildAboutUs(context, webPrimary, webTextDark, webTextGray, webEmerald),
-
-            // 3. Projects section
-            _buildProjects(
-              context,
-              webTextDark,
-              webTextGray,
-              webEmerald,
-              webPrimary,
+      backgroundColor: _bgGray,
+      body: RefreshIndicator(
+        color: _primary,
+        onRefresh: () async {
+          await _loadCategories();
+          await _loadCampaigns(refresh: true);
+        },
+        child: CustomScrollView(
+          controller: _scrollCtrl,
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          slivers: <Widget>[
+            // ─── App Bar ──────────────────────────────────────────
+            SliverAppBar(
+              floating: true,
+              snap: true,
+              backgroundColor: Colors.white,
+              elevation: 0.5,
+              title: Image.asset(
+                'assets/images/black-logo.png',
+                height: 32,
+                fit: BoxFit.contain,
+              ),
+              actions: <Widget>[
+                IconButton(
+                  icon: const Icon(Icons.notifications_none,
+                      color: _textDark),
+                  onPressed: () =>
+                      Navigator.pushNamed(context, '/notifications'),
+                ),
+              ],
             ),
 
-            // 4. CTA section
-            _buildCTA(context, webEmerald, webPrimary),
-            
-            const SizedBox(height: 40),
+            // ─── Search Bar ───────────────────────────────────────
+            SliverToBoxAdapter(child: _buildSearchBar()),
+
+            // ─── Categories ───────────────────────────────────────
+            SliverToBoxAdapter(child: _buildCategories()),
+
+            // ─── Campaign List ────────────────────────────────────
+            _buildCampaignList(),
+
+            // ─── Loading More ─────────────────────────────────────
+            if (_loadingMore)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              ),
+
+            // Bottom spacing
+            const SliverToBoxAdapter(child: SizedBox(height: 80)),
+          ],
+        ),
+      ),
+      floatingActionButton: _buildFAB(auth),
+    );
+  }
+
+  // ─── Search Bar ───────────────────────────────────────────────────────────
+  Widget _buildSearchBar() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: TextField(
+        controller: _searchCtrl,
+        textInputAction: TextInputAction.search,
+        onSubmitted: _onSearch,
+        decoration: InputDecoration(
+          hintText: 'Tìm kiếm chiến dịch...',
+          hintStyle: const TextStyle(color: _textGray, fontSize: 14),
+          prefixIcon:
+              const Icon(Icons.search, color: _textGray, size: 22),
+          suffixIcon: _searchCtrl.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 20),
+                  onPressed: () {
+                    _searchCtrl.clear();
+                    _onSearch('');
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor: const Color(0xFFF3F4F6),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide.none,
+          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        ),
+        onChanged: (v) => setState(() {}), // update clear icon
+      ),
+    );
+  }
+
+  // ─── Categories ───────────────────────────────────────────────────────────
+  Widget _buildCategories() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
+            child: Text(
+              'Danh mục',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: _textGray,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+          SizedBox(
+            height: 40,
+            child: _categoriesLoading
+                ? const Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : ListView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    children: <Widget>[
+                      _CategoryChip(
+                        label: 'Tất cả',
+                        selected: _selectedCategoryId == null,
+                        onTap: () => _onCategorySelected(null),
+                      ),
+                      ..._categories.map(
+                        (cat) => _CategoryChip(
+                          label: cat.name,
+                          selected: _selectedCategoryId == cat.id,
+                          onTap: () => _onCategorySelected(cat.id),
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Campaign List ────────────────────────────────────────────────────────
+  Widget _buildCampaignList() {
+    if (_loading && _campaigns.isEmpty) {
+      return const SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_errorMsg != null && _campaigns.isEmpty) {
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: _buildErrorState(),
+      );
+    }
+
+    if (_campaigns.isEmpty) {
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: _buildEmptyState(),
+      );
+    }
+
+    return SliverPadding(
+      padding: const EdgeInsets.all(12),
+      sliver: SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final campaign = _campaigns[index];
+            final progress = _progressMap[campaign.id];
+            return _CampaignCard(
+              campaign: campaign,
+              progress: progress,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => CampaignDetailScreen(
+                      campaign: campaign,
+                      initialProgress: progress,
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+          childCount: _campaigns.length,
+        ),
+      ),
+    );
+  }
+
+  // ─── Empty State ──────────────────────────────────────────────────────────
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(Icons.search_off_rounded, size: 64, color: Colors.grey[300]),
+            const SizedBox(height: 16),
+            const Text(
+              'Không tìm thấy chiến dịch nào',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: _textDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _searchQuery.isNotEmpty
+                  ? 'Thử tìm kiếm với từ khóa khác'
+                  : 'Chưa có chiến dịch nào trong danh mục này',
+              style: const TextStyle(fontSize: 14, color: _textGray),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHero(
-      BuildContext context, Color primary, Color dark, Color gray, Color emerald) {
-    final double screenW = MediaQuery.sizeOf(context).width;
-    final bool isHeroMobile = screenW < 600;
-
-    return Container(
-      width: double.infinity,
-      height: 450,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(40),
-          bottomRight: Radius.circular(40),
-        ),
-      ),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned.fill(
-            child: CustomPaint(
-              painter: _DotPainter(color: Colors.grey.withOpacity(0.06)),
+  // ─── Error State ──────────────────────────────────────────────────────────
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(Icons.wifi_off_rounded, size: 56, color: Colors.grey[300]),
+            const SizedBox(height: 16),
+            Text(
+              _errorMsg ?? 'Đã có lỗi xảy ra',
+              style: const TextStyle(fontSize: 15, color: _textGray),
+              textAlign: TextAlign.center,
             ),
-          ),
-          _buildRotatingBlob(
-            color: const Color(0xFFFFE5E5).withOpacity(0.4),
-            size: 320, top: -40, left: -60, duration: 25.seconds,
-          ),
-          _buildRotatingBlob(
-            color: emerald.withOpacity(0.12),
-            size: 350, bottom: -80, right: -100, duration: 30.seconds,
-          ),
-          
-          // Floating images cluster per screenshot
-          Positioned(
-            right: 10, top: 80,
-            child: _buildCollageImage(
-              url: 'https://images.unsplash.com/photo-1593113598332-cd288d649433?q=80&w=1280&auto=format&fit=crop',
-              size: 130, borderRadius: 24,
-            ).animate(delay: 200.ms).fadeIn(),
-          ),
-          Positioned(
-            right: -20, top: 200,
-            child: _buildCollageImage(
-              url: 'https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?q=80&w=1280&auto=format&fit=crop',
-              size: 140, borderRadius: 24,
-            ).animate(delay: 400.ms).fadeIn(),
-          ),
-          // 3rd image removed as per user request to show Create Campaign button more clearly
-
-          // Text and Actions on the left
-          Positioned(
-            left: 24, top: 60,
-            width: MediaQuery.of(context).size.width * 0.65,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                RichText(
-                  text: TextSpan(
-                    style: TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: dark, height: 1.1),
-                    children: isHeroMobile
-                        ? [
-                            const TextSpan(text: "Góp Một\nPhần,\n"),
-                            TextSpan(
-                              text: "Thay Ngàn\n",
-                              style: TextStyle(color: primary),
-                            ),
-                            const TextSpan(text: "Cuộc Đời"),
-                          ]
-                        : [
-                            const TextSpan(text: "Góp Một Phần,\n"),
-                            TextSpan(
-                              text: "Thay Ngàn ",
-                              style: TextStyle(color: primary),
-                            ),
-                            const TextSpan(text: "Cuộc Đời"),
-                          ],
-                  ),
-                ).animate().fadeIn(),
-                SizedBox(height: isHeroMobile ? 36 : 30),
-                _buildHeroActions(context, primary, dark, emerald).animate(delay: 800.ms).fadeIn(),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRotatingBlob({
-    required Color color,
-    required double size,
-    double? top,
-    double? left,
-    double? right,
-    double? bottom,
-    required Duration duration,
-    bool isClockwise = true,
-    double driftX = 0,
-    double driftY = 0,
-  }) {
-    return Positioned(
-      top: top,
-      left: left,
-      right: right,
-      bottom: bottom,
-      child: Animate(
-        onPlay: (controller) => controller.repeat(),
-      ).custom(
-        duration: duration,
-        builder: (context, value, child) {
-          final angle = isClockwise ? value * 2 * math.pi : -value * 2 * math.pi;
-          final double dx = math.sin(value * 2 * math.pi) * driftX;
-          final double dy = math.cos(value * 2 * math.pi) * driftY;
-          return Transform.translate(
-            offset: Offset(dx, dy),
-            child: Transform.rotate(
-              angle: angle,
-              child: Container(
-                width: size,
-                height: size,
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(size * 0.4),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () => _loadCampaigns(refresh: true),
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('Thử lại'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
             ),
-          );
-        },
-      ).animate().fadeIn(),
-    );
-  }
-
-  Widget _buildCollageImage(
-      {required String url, required double size, required double borderRadius}) {
-    return Container(
-      width: size,
-      height: size,
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(borderRadius),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(borderRadius - 4),
-        child: Image.network(
-          url,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => Container(
-            color: const Color(0xFFF3F4F6),
-            child: const Icon(Icons.image_outlined, color: Colors.grey),
-          ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildHeroActions(BuildContext context, Color primary, Color dark, Color emerald) {
-    final bool isMobile = MediaQuery.sizeOf(context).width < 600;
-    final double btnFont = isMobile ? 15.5 : 13;
-    final EdgeInsets btnPad = isMobile
-        ? const EdgeInsets.symmetric(horizontal: 26, vertical: 18)
-        : const EdgeInsets.symmetric(horizontal: 20, vertical: 14);
-    final double createBtnFont = isMobile ? 13.5 : btnFont;
-    final EdgeInsets createBtnPad = isMobile
-        ? const EdgeInsets.symmetric(horizontal: 16, vertical: 12)
-        : btnPad;
-    final double btnRadius = isMobile ? 16 : 14;
+  // ─── FAB ──────────────────────────────────────────────────────────────────
+  Widget? _buildFAB(AuthProvider auth) {
+    if (!auth.isLoggedIn) return null;
+    final user = auth.user;
+    if (user == null) return null;
+    // Show FAB only if KYC is approved
+    if (user.kycStatus?.toUpperCase() != 'APPROVED') return null;
 
-    return Wrap(
-      spacing: isMobile ? 14 : 12,
-      runSpacing: isMobile ? 14 : 12,
-      children: [
-        _buildButton(
-          text: "Quyên góp ngay",
-          color: primary,
-          textColor: Colors.white,
-          padding: btnPad,
-          fontSize: btnFont,
-          borderRadius: btnRadius,
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (context) => const CampaignsScreen()),
-            );
-          },
-        ),
-        _buildButton(
-          text: "Tạo chiến dịch →",
-          color: dark.withOpacity(0.08),
-          textColor: dark,
-          padding: createBtnPad,
-          fontSize: createBtnFont,
-          borderRadius: btnRadius,
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (context) => const CreateCampaignScreen()),
-            );
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildButton({
-    required String text,
-    required Color color,
-    required Color textColor,
-    required VoidCallback onPressed,
-    EdgeInsets? padding,
-    double? fontSize,
-    double? borderRadius,
-  }) {
-    return ElevatedButton(
-      onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color,
-        foregroundColor: textColor,
-        elevation: 0,
-        padding: padding ?? const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(borderRadius ?? 14),
-        ),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontWeight: FontWeight.w700,
-          fontSize: fontSize ?? 13,
-        ),
+    return FloatingActionButton.extended(
+      onPressed: () {
+        Navigator.pushNamed(context, '/new-campaign');
+      },
+      backgroundColor: _primary,
+      foregroundColor: Colors.white,
+      icon: const Icon(Icons.add),
+      label: const Text(
+        'Tạo chiến dịch',
+        style: TextStyle(fontWeight: FontWeight.w700),
       ),
     );
-  }
-
-  Widget _buildAboutUs(BuildContext context, Color primary, Color dark, Color gray, Color emerald) {
-    return Container(
-      margin: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 24),
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFCFCFD),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: const Color(0xFFE5E7EB),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 24,
-                height: 2,
-                color: primary,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                "VỀ CHÚNG TÔI",
-                style: TextStyle(
-                  color: primary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.2,
-                ),
-              ),
-            ],
-          ).animate().fadeIn(),
-          const SizedBox(height: 12),
-          Text(
-            "Vì một thế giới\ntốt đẹp hơn",
-            style: TextStyle(
-              color: dark,
-              fontSize: 28,
-              fontWeight: FontWeight.w900,
-              height: 1.2,
-            ),
-          ).animate().fadeIn(delay: 200.ms),
-          const SizedBox(height: 16),
-          Text(
-            "Chúng tôi tin rằng sự minh bạch là chìa khóa để xây dựng niềm tin trong các hoạt động thiện nguyện.",
-            style: TextStyle(
-              color: gray.withOpacity(0.7),
-              fontSize: 15,
-              height: 1.5,
-            ),
-          ).animate().fadeIn(delay: 400.ms),
-          const SizedBox(height: 28),
-          _buildFeatureRow(
-            icon: Icons.verified_rounded,
-            title: "Báo cáo minh bạch 24/7",
-            color: const Color(0xFF1B5E20),
-          ).animate().fadeIn(delay: 600.ms),
-          const SizedBox(height: 12),
-          const Divider(height: 1, color: Color(0xFFE5E7EB)),
-          const SizedBox(height: 12),
-          _buildFeatureRow(
-            icon: Icons.shield_rounded,
-            title: "Bảo mật thông tin đóng góp",
-            color: const Color(0xFF00695C),
-          ).animate().fadeIn(delay: 700.ms),
-          const SizedBox(height: 12),
-          const Divider(height: 1, color: Color(0xFFE5E7EB)),
-          const SizedBox(height: 12),
-          _buildFeatureRow(
-            icon: Icons.auto_awesome_rounded,
-            title: "Hỗ trợ công nghệ AI tiên tiến",
-            color: const Color(0xFF37474F),
-          ).animate().fadeIn(delay: 800.ms),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFeatureRow({required IconData icon, required String title, required Color color}) {
-    return Row(
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.08),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Icon(icon, color: color, size: 18),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            title,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF111827),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildProjects(
-    BuildContext context,
-    Color dark,
-    Color gray,
-    Color emerald,
-    Color primary,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text("Chiến dịch nổi bật", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: dark)),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const CampaignsScreen(),
-                    ),
-                  );
-                },
-                child: Row(
-                  children: [
-                    Text("Tất cả", style: TextStyle(color: emerald, fontWeight: FontWeight.bold)),
-                    const Icon(Icons.arrow_forward_ios, size: 12),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        SizedBox(
-          height: 360,
-          child: _loading && _campaigns.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: _campaigns.isEmpty ? 0 : _campaigns.length.clamp(0, 5),
-                  itemBuilder: (context, index) {
-                    final campaign = _campaigns[index];
-                    final progress = _progressByCampaign[campaign.id];
-                    final double ratio = (progress?.progressPercentage ?? 0) / 100;
-
-                    return InkWell(
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => CampaignDetailScreen(
-                              campaign: campaign,
-                              initialProgress: progress,
-                            ),
-                          ),
-                        );
-                      },
-                      child: _ProjectCard(
-                        campaign.title,
-                        campaign.description ?? "",
-                        ratio,
-                        primary,
-                        campaign.coverImageUrl ?? "https://placehold.co/800x500.png?text=${Uri.encodeComponent(campaign.title)}&bg=DBEAFE&color=0F172A",
-                      ),
-                    ).animate().fadeIn(delay: (200 * index).ms).slideX(begin: 0.2);
-                  },
-                ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCTA(BuildContext context, Color emerald, Color primary) {
-    return Container(
-      margin: const EdgeInsets.all(24),
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
-        borderRadius: BorderRadius.circular(32),
-        image: DecorationImage(
-          image: const NetworkImage("https://www.transparenttextures.com/patterns/carbon-fibre.png"),
-          opacity: 0.1,
-          colorFilter: ColorFilter.mode(emerald.withOpacity(0.1), BlendMode.srcIn),
-        ),
-      ),
-      child: Column(
-        children: [
-          const Text(
-            "Bạn đã sẵn sàng để\ntạo ra sự khác biệt?",
-            style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold, height: 1.2),
-            textAlign: TextAlign.center,
-          ).animate().fadeIn(duration: 600.ms),
-          const SizedBox(height: 24),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => const CreateCampaignScreen(),
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: primary,
-              foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 56),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              elevation: 10,
-              shadowColor: primary.withOpacity(0.5),
-            ),
-            child: const Text("Bắt đầu ngay", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          ).animate().fadeIn(delay: 120.ms),
-        ],
-      ),
-    ).animate().fadeIn(delay: 1.seconds).slideY(begin: 0.2);
   }
 }
 
-class _ProjectCard extends StatelessWidget {
-  final String title;
-  final String desc;
-  final double progress;
-  final Color primary;
-  final String imageUrl;
-  const _ProjectCard(this.title, this.desc, this.progress, this.primary, this.imageUrl);
+// ─── Category Chip ────────────────────────────────────────────────────────────
+class _CategoryChip extends StatelessWidget {
+  const _CategoryChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 280,
-      margin: const EdgeInsets.only(right: 20, bottom: 10, top: 5),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected
+                ? const Color(0xFF18181B)
+                : const Color(0xFFF3F4F6),
+            borderRadius: BorderRadius.circular(20),
           ),
-        ],
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected ? Colors.white : const Color(0xFF6B7280),
+            ),
+          ),
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            child: Stack(
-              children: [
+    );
+  }
+}
+
+// ─── Campaign Card ────────────────────────────────────────────────────────────
+class _CampaignCard extends StatelessWidget {
+  const _CampaignCard({
+    required this.campaign,
+    this.progress,
+    required this.onTap,
+  });
+
+  final CampaignModel campaign;
+  final CampaignProgressModel? progress;
+  final VoidCallback onTap;
+
+  static String _formatCurrency(int amount) {
+    final formatter = NumberFormat('#,###', 'vi_VN');
+    return '${formatter.format(amount)} đ';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final double ratio = progress != null
+        ? (progress!.progressPercentage / 100).clamp(0.0, 1.0)
+        : 0.0;
+    final int raised = progress?.raisedAmount ?? 0;
+    final int goal = progress?.goalAmount ?? 0;
+    final int donors = progress?.donorCount ?? 0;
+    final int pct = progress?.progressPercentage ?? 0;
+
+    final String imageUrl = campaign.coverImageUrl ??
+        'https://placehold.co/800x400.png?text=${Uri.encodeComponent(campaign.title)}&bg=DBEAFE&color=0F172A';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: Color(0xFFE5E7EB), width: 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            // ─── Cover Image ──────────────────────────────────────
+            Stack(
+              children: <Widget>[
                 Image.network(
                   imageUrl,
-                  height: 150,
+                  height: 170,
                   width: double.infinity,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    height: 150,
+                  errorBuilder: (_, __, ___) => Container(
+                    height: 170,
                     color: const Color(0xFFE5E7EB),
                     alignment: Alignment.center,
                     child: const Icon(
                       Icons.image_not_supported_outlined,
                       color: Color(0xFF9CA3AF),
-                      size: 30,
+                      size: 36,
                     ),
                   ),
                 ),
-                Positioned(
-                  top: 12,
-                  right: 12,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                    child: Icon(Icons.favorite_border, size: 18, color: primary),
+                // Category badge
+                if (campaign.categoryName != null &&
+                    campaign.categoryName!.isNotEmpty)
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.92),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        campaign.categoryName!,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF374151),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
               ],
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-                const SizedBox(height: 6),
-                Text(
-                  desc,
-                  style: const TextStyle(color: Colors.grey, fontSize: 13),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 16),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: LinearProgressIndicator(
-                    value: progress, 
-                    backgroundColor: Colors.grey[100], 
-                    color: primary, 
-                    minHeight: 8,
+
+            // ─── Content ──────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  // Title
+                  Text(
+                    campaign.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF111827),
+                      height: 1.3,
+                    ),
                   ),
-                ).animate().shimmer(delay: 1.seconds, duration: 2.seconds),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text("${(progress * 100).toInt()}%", style: TextStyle(color: primary, fontWeight: FontWeight.bold, fontSize: 14)),
-                    const Text("Đã quyên góp", style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w500)),
-                  ],
-                )
-              ],
+                  const SizedBox(height: 8),
+
+                  // Creator + KYC badge
+                  Row(
+                    children: <Widget>[
+                      Icon(
+                        Icons.person_outline,
+                        size: 15,
+                        color: Colors.grey[500],
+                      ),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          campaign.assignedStaffName ??
+                              'Người tạo #${campaign.fundOwnerId ?? ''}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (campaign.kycVerified) ...<Widget>[
+                        const SizedBox(width: 6),
+                        const Icon(Icons.verified,
+                            size: 15, color: Color(0xFF2563EB)),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Progress bar
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: LinearProgressIndicator(
+                      value: ratio,
+                      backgroundColor: const Color(0xFFE5E7EB),
+                      color: _HomeScreenState._primary,
+                      minHeight: 6,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Stats row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          goal > 0
+                              ? '${_formatCurrency(raised)} / ${_formatCurrency(goal)}'
+                              : raised > 0
+                                  ? _formatCurrency(raised)
+                                  : 'Chưa có đóng góp',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF374151),
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Text(
+                        '$pct% đã đạt',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _HomeScreenState._primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+
+                  // Donor count
+                  if (donors > 0)
+                    Text(
+                      '$donors người ủng hộ',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey[500],
+                      ),
+                    ),
+                ],
+              ),
             ),
-          )
-        ],
+          ],
+        ),
       ),
     );
   }
 }
-
-// Custom Painter for Dot Pattern Background
-class _DotPainter extends CustomPainter {
-  final Color color;
-  _DotPainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = color;
-    const double spacing = 20.0;
-    const double dotSize = 1.5;
-
-    for (double x = 0; x < size.width; x += spacing) {
-      for (double y = 0; y < size.height; y += spacing) {
-        canvas.drawCircle(Offset(x, y), dotSize, paint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-

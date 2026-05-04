@@ -107,6 +107,20 @@ class AuthService extends BaseService {
     );
   }
 
+  /// Đổi mật khẩu (user đã đăng nhập).
+  Future<Response<dynamic>> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    return dio.put(
+      '$identityUrl/users/change-password',
+      data: <String, dynamic>{
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      },
+    );
+  }
+
   /// Đăng xuất: xóa JWT token khỏi secure storage.
   Future<void> logout() async {
     await storage.delete(key: 'jwt_token');

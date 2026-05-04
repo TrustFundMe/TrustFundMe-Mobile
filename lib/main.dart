@@ -7,6 +7,12 @@ import 'screens/app_bootstrap_screen.dart';
 import 'screens/campaign/new_campaign_screen.dart';
 import 'screens/kyc/kyc_screen.dart';
 import 'screens/notifications/notification_screen.dart';
+import 'screens/account/account_screen.dart';
+import 'screens/account/donation_history_screen.dart';
+import 'screens/account/bank_accounts_screen.dart';
+import 'screens/account/change_password_screen.dart';
+import 'screens/my_campaigns_screen.dart';
+import 'screens/feed/community_feed_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,6 +50,12 @@ class TrustFundMeApp extends StatelessWidget {
         '/kyc': (context) => const KycScreen(),
         '/notifications': (context) => const NotificationScreen(),
         '/new-campaign': (context) => const NewCampaignScreen(),
+        '/account': (context) => const AccountScreen(),
+        '/my-campaigns': (context) => const MyCampaignsScreen(),
+        '/donation-history': (context) => const DonationHistoryScreen(),
+        '/bank-accounts': (context) => const BankAccountsScreen(),
+        '/change-password': (context) => const ChangePasswordScreen(),
+        '/community-feed': (context) => const CommunityFeedScreen(),
       },
     );
   }
