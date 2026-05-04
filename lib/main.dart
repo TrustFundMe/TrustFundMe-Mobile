@@ -4,6 +4,9 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/providers/auth_provider.dart';
 import 'core/providers/chat_provider.dart';
 import 'screens/app_bootstrap_screen.dart';
+import 'screens/campaign/new_campaign_screen.dart';
+import 'screens/kyc/kyc_screen.dart';
+import 'screens/notifications/notification_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,6 +40,11 @@ class TrustFundMeApp extends StatelessWidget {
         fontFamily: 'Roboto', // Đảm bảo bạn có font hoặc dùng mặc định
       ),
       home: const AppBootstrapScreen(),
+      routes: {
+        '/kyc': (context) => const KycScreen(),
+        '/notifications': (context) => const NotificationScreen(),
+        '/new-campaign': (context) => const NewCampaignScreen(),
+      },
     );
   }
 }

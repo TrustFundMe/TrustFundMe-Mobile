@@ -1,555 +1,415 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'package:dio/dio.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../constants/api_constants.dart';
+import 'base_service.dart';
+import 'auth_service.dart';
+import 'user_service.dart';
+import 'campaign_service.dart';
+import 'donation_service.dart';
+import 'expenditure_service.dart';
+import 'feed_service.dart';
+import 'media_service.dart';
+import 'chat_service.dart';
+import 'flag_service.dart';
 
-class ApiService {
-  final Dio _dio = Dio();
-  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+/// Monolithic API service â€” giu backward compatibility.
+///
+/// **DEPRECATED**: Cac screen/widget moi nen dung truc tiep domain services
+/// ([AuthService], [UserService], [CampaignService], v.v.) thay vi ApiService.
+///
+/// File nay delegate tat ca methods sang domain services tuong ung,
+/// dam bao code hien tai van hoat dong khong can sua.
+class ApiService extends BaseService {
+  // Domain service instances (lazy)
+  final AuthService _auth = AuthService();
+  final UserService _user = UserService();
+  final CampaignService _campaign = CampaignService();
+  final DonationService _donation = DonationService();
+  final ExpenditureService _expenditure = ExpenditureService();
+  final FeedService _feed = FeedService();
+  final MediaService _media = MediaService();
+  final ChatService _chat = ChatService();
+  final FlagService _flag = FlagService();
 
-  ApiService() {
-    _dio.options.connectTimeout = const Duration(seconds: 60);
-    _dio.options.receiveTimeout = const Duration(seconds: 60);
+  // AUTH (delegate -> AuthService)
 
-    _dio.interceptors.add(
-      InterceptorsWrapper(
-        onRequest: (options, handler) async {
-          // Chỉ đính kèm JWT cho các service backend của bạn.
-          if (!options.path.contains('supabase.co')) {
-            final String? token = await _storage.read(key: 'jwt_token');
-            if (token != null) {
-              options.headers['Authorization'] = 'Bearer $token';
-            }
-          }
-          return handler.next(options);
-        },
-        onError: (DioException e, handler) {
-          return handler.next(e);
-        },
-      ),
-    );
-  }
+  @Deprecated('Use AuthService.login() instead')
+  Future<Response<dynamic>> login(String username, String password) =>
+      _auth.login(username, password);
 
-  Future<Response<dynamic>> getCampaigns() async {
-    return _dio.get('${ApiConfig.campaignUrl}/campaigns');
-  }
+  @Deprecated('Use AuthService.register() instead')
+  Future<Response<dynamic>> register({
+    required String email,
+    required String password,
+    required String fullName,
+    String? phoneNumber,
+  }) =>
+      _auth.register(
+        email: email,
+        password: password,
+        fullName: fullName,
+        phoneNumber: phoneNumber,
+      );
 
-  Future<Response<dynamic>> getFeedPostComments(
-    int postId, {
+  @Deprecated('Use AuthService.loginWithGoogle() instead')
+  Future<Response<dynamic>> loginWithGoogle(String idToken) =>
+      _auth.loginWithGoogle(idToken);
+
+  @Deprecated('Use AuthService.sendPasswordResetOtp() instead')
+  Future<Response<dynamic>> sendPasswordResetOtp(String email) =>
+      _auth.sendPasswordResetOtp(email);
+
+  @Deprecated('Use AuthService.verifyPasswordResetOtp() instead')
+  Future<Response<dynamic>> verifyPasswordResetOtp({
+    required String email,
+    required String otp,
+  }) =>
+      _auth.verifyPasswordResetOtp(email: email, otp: otp);
+
+  @Deprecated('Use AuthService.resetPassword() instead')
+  Future<Response<dynamic>> resetPassword({
+    required String token,
+    required String newPassword,
+  }) =>
+      _auth.resetPassword(token: token, newPassword: newPassword);
+
+  @Deprecated('Use AuthService.verifyEmailWithToken() instead')
+  Future<Response<dynamic>> verifyEmailWithToken(String token) =>
+      _auth.verifyEmailWithToken(token);
+
+  // USER / PROFILE (delegate -> UserService)
+
+  @Deprecated('Use UserService.updateProfile() instead')
+  Future<Response<dynamic>> updateProfile(
+    int userId,
+    Map<String, dynamic> data,
+  ) =>
+      _user.updateProfile(userId, data);
+
+  @Deprecated('Use UserService.uploadToSupabase() instead')
+  Future<String> uploadToSupabase(String filePath, int userId) =>
+      _user.uploadToSupabase(filePath, userId);
+
+  @Deprecated('Use UserService.getUserById() instead')
+  Future<Response<dynamic>> getUserById(int userId) =>
+      _user.getUserById(userId);
+
+  @Deprecated('Use UserService.getMyBankAccounts() instead')
+  Future<Response<dynamic>> getMyBankAccounts() =>
+      _user.getMyBankAccounts();
+
+  @Deprecated('Use UserService.createBankAccount() instead')
+  Future<Response<dynamic>> createBankAccount(Map<String, dynamic> data) =>
+      _user.createBankAccount(data);
+
+  @Deprecated('Use UserService.updateBankAccount() instead')
+  Future<Response<dynamic>> updateBankAccount(
+    int id,
+    Map<String, dynamic> data,
+  ) =>
+      _user.updateBankAccount(id, data);
+
+  // CAMPAIGNS (delegate -> CampaignService)
+
+  @Deprecated('Use CampaignService.getCampaigns() instead')
+  Future<Response<dynamic>> getCampaigns() =>
+      _campaign.getCampaigns();
+
+  @Deprecated('Use CampaignService.getCampaign() instead')
+  Future<Response<dynamic>> getCampaign(int id) =>
+      _campaign.getCampaign(id);
+
+  @Deprecated('Use CampaignService.createCampaign() instead')
+  Future<Response<dynamic>> createCampaign(Map<String, dynamic> data) =>
+      _campaign.createCampaign(data);
+
+  @Deprecated('Use CampaignService.updateCampaign() instead')
+  Future<Response<dynamic>> updateCampaign(
+    int id,
+    Map<String, dynamic> data,
+  ) =>
+      _campaign.updateCampaign(id, data);
+
+  @Deprecated('Use CampaignService.deleteCampaign() instead')
+  Future<Response<dynamic>> deleteCampaign(int id) =>
+      _campaign.deleteCampaign(id);
+
+  @Deprecated('Use CampaignService.getUserCampaigns() instead')
+  Future<Response<dynamic>> getUserCampaigns(
+    int userId, {
     int page = 0,
-    int size = 20,
-    String sort = 'createdAt,desc',
-  }) async {
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/feed-posts/$postId/comments',
-      queryParameters: <String, dynamic>{
-        'page': page,
-        'size': size,
-        'sort': sort,
-      },
-    );
-  }
+    int size = 10,
+  }) =>
+      _campaign.getUserCampaigns(userId, page: page, size: size);
 
-  Future<Response<dynamic>> createFeedPostComment(
-    int postId,
-    String content, {
-    int? parentCommentId,
-  }) async {
-    return _dio.post(
-      '${ApiConfig.campaignUrl}/feed-posts/$postId/comments',
-      data: <String, dynamic>{
-        'content': content,
-        'parentCommentId': parentCommentId,
-      },
-    );
-  }
+  @Deprecated('Use CampaignService.getCategories() instead')
+  Future<Response<dynamic>> getCategories() =>
+      _campaign.getCategories();
 
-  /// Active feed (status=PUBLISHED, visibility rules on server).
+  @Deprecated('Use CampaignService.followCampaign() instead')
+  Future<Response<dynamic>> followCampaign(int campaignId) =>
+      _campaign.followCampaign(campaignId);
+
+  @Deprecated('Use CampaignService.unfollowCampaign() instead')
+  Future<Response<dynamic>> unfollowCampaign(int campaignId) =>
+      _campaign.unfollowCampaign(campaignId);
+
+  @Deprecated('Use CampaignService.isFollowingCampaign() instead')
+  Future<Response<dynamic>> isFollowingCampaign(int campaignId) =>
+      _campaign.isFollowingCampaign(campaignId);
+
+  @Deprecated('Use CampaignService.getActiveGoalByCampaign() instead')
+  Future<Response<dynamic>> getActiveGoalByCampaign(int campaignId) =>
+      _campaign.getActiveGoalByCampaign(campaignId);
+
+  @Deprecated('Use CampaignService.createGoal() instead')
+  Future<Response<dynamic>> createGoal(Map<String, dynamic> data) =>
+      _campaign.createGoal(data);
+
+  @Deprecated('Use CampaignService.getGoalsByCampaign() instead')
+  Future<Response<dynamic>> getGoalsByCampaign(int campaignId) =>
+      _campaign.getGoalsByCampaign(campaignId);
+
+  @Deprecated('Use CampaignService.getTaskByCampaignId() instead')
+  Future<Response<dynamic>> getTaskByCampaignId(int campaignId) =>
+      _campaign.getTaskByCampaignId(campaignId);
+
+  @Deprecated('Use CampaignService.generateDescription() instead')
+  Future<Response<dynamic>> generateDescription(
+    String prompt, {
+    String? rules,
+  }) =>
+      _campaign.generateDescription(prompt, rules: rules);
+
+  @Deprecated('Use MediaService.getCampaignFirstImage() instead')
+  Future<Response<dynamic>> getCampaignFirstImage(int campaignId) =>
+      _media.getCampaignFirstImage(campaignId);
+
+  // DONATIONS / PAYMENTS (delegate -> DonationService)
+
+  @Deprecated('Use DonationService.createPayment() instead')
+  Future<Response<dynamic>> createPayment(Map<String, dynamic> body) =>
+      _donation.createPayment(body);
+
+  @Deprecated('Use DonationService.verifyDonationPayment() instead')
+  Future<Response<dynamic>> verifyDonationPayment(int donationId) =>
+      _donation.verifyDonationPayment(donationId);
+
+  @Deprecated('Use DonationService.syncDonationQuantity() instead')
+  Future<Response<dynamic>> syncDonationQuantity(int donationId) =>
+      _donation.syncDonationQuantity(donationId);
+
+  @Deprecated('Use DonationService.syncDonationBalance() instead')
+  Future<Response<dynamic>> syncDonationBalance(int donationId) =>
+      _donation.syncDonationBalance(donationId);
+
+  @Deprecated('Use DonationService.getDonationSummary() instead')
+  Future<Response<dynamic>> getDonationSummary(
+    List<int> expenditureItemIds,
+  ) =>
+      _donation.getDonationSummary(expenditureItemIds);
+
+  @Deprecated('Use DonationService.getDonorsByItem() instead')
+  Future<Response<dynamic>> getDonorsByItem(int itemId) =>
+      _donation.getDonorsByItem(itemId);
+
+  @Deprecated('Use DonationService.getCampaignProgress() instead')
+  Future<Response<dynamic>> getCampaignProgress(int campaignId) =>
+      _donation.getCampaignProgress(campaignId);
+
+  @Deprecated('Use DonationService.getRecentDonors() instead')
+  Future<Response<dynamic>> getRecentDonors(
+    int campaignId, {
+    int limit = 3,
+  }) =>
+      _donation.getRecentDonors(campaignId, limit: limit);
+
+  @Deprecated('Use DonationService.getMyDonations() instead')
+  Future<Response<dynamic>> getMyDonations({int limit = 50}) =>
+      _donation.getMyDonations(limit: limit);
+
+  @Deprecated('Use DonationService.checkExpenditureItemLimit() instead')
+  Future<Response<dynamic>> checkExpenditureItemLimit(
+    int expenditureItemId,
+    int quantity,
+  ) =>
+      _donation.checkExpenditureItemLimit(expenditureItemId, quantity);
+
+  // EXPENDITURES (delegate -> ExpenditureService)
+
+  @Deprecated('Use ExpenditureService.createExpenditure() instead')
+  Future<Response<dynamic>> createExpenditure(Map<String, dynamic> data) =>
+      _expenditure.createExpenditure(data);
+
+  @Deprecated('Use ExpenditureService.getExpendituresByCampaign() instead')
+  Future<Response<dynamic>> getExpendituresByCampaign(int campaignId) =>
+      _expenditure.getExpendituresByCampaign(campaignId);
+
+  @Deprecated('Use ExpenditureService.getExpenditureById() instead')
+  Future<Response<dynamic>> getExpenditureById(int expenditureId) =>
+      _expenditure.getExpenditureById(expenditureId);
+
+  @Deprecated('Use ExpenditureService.getExpenditureItemsByCampaign() instead')
+  Future<Response<dynamic>> getExpenditureItemsByCampaign(int campaignId) =>
+      _expenditure.getExpenditureItemsByCampaign(campaignId);
+
+  @Deprecated('Use ExpenditureService.getExpenditureItems() instead')
+  Future<Response<dynamic>> getExpenditureItems(int expenditureId) =>
+      _expenditure.getExpenditureItems(expenditureId);
+
+  @Deprecated('Use ExpenditureService.getApprovedExpenditureItemsByCampaign() instead')
+  Future<Response<dynamic>> getApprovedExpenditureItemsByCampaign(
+    int campaignId,
+  ) =>
+      _expenditure.getApprovedExpenditureItemsByCampaign(campaignId);
+
+  @Deprecated('Use ExpenditureService.requestWithdrawal() instead')
+  Future<Response<dynamic>> requestWithdrawal(int expenditureId) =>
+      _expenditure.requestWithdrawal(expenditureId);
+
+  @Deprecated('Use ExpenditureService.updateEvidenceStatus() instead')
+  Future<Response<dynamic>> updateEvidenceStatus(
+    int expenditureId,
+    String status,
+  ) =>
+      _expenditure.updateEvidenceStatus(expenditureId, status);
+
+  // FEED POSTS (delegate -> FeedService)
+
+  @Deprecated('Use FeedService.getFeedPosts() instead')
   Future<Response<dynamic>> getFeedPosts({
     int page = 0,
     int size = 10,
     String sort = 'createdAt,desc',
     int? categoryId,
     int? campaignId,
-  }) async {
-    final Map<String, dynamic> q = <String, dynamic>{
-      'page': page,
-      'size': size,
-      'sort': sort,
-    };
-    if (categoryId != null) {
-      q['categoryId'] = categoryId;
-    }
-    if (campaignId != null) {
-      q['campaignId'] = campaignId;
-    }
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/feed-posts',
-      queryParameters: q,
-    );
-  }
+  }) =>
+      _feed.getFeedPosts(
+        page: page,
+        size: size,
+        sort: sort,
+        categoryId: categoryId,
+        campaignId: campaignId,
+      );
 
+  @Deprecated('Use FeedService.getFeedPostsByTarget() instead')
   Future<Response<dynamic>> getFeedPostsByTarget({
     required int targetId,
     required String targetType,
     int page = 0,
     int size = 20,
     String sort = 'createdAt,desc',
-  }) async {
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/feed-posts',
-      queryParameters: <String, dynamic>{
-        'targetId': targetId,
-        'targetType': targetType,
-        'page': page,
-        'size': size,
-        'sort': sort,
-      },
-    );
-  }
+  }) =>
+      _feed.getFeedPostsByTarget(
+        targetId: targetId,
+        targetType: targetType,
+        page: page,
+        size: size,
+        sort: sort,
+      );
 
+  @Deprecated('Use FeedService.getMyFeedPosts() instead')
   Future<Response<dynamic>> getMyFeedPosts({
     String status = 'ALL',
     int page = 0,
     int size = 20,
     String sort = 'updatedAt,desc',
-  }) async {
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/feed-posts/my',
-      queryParameters: <String, dynamic>{
-        'status': status,
-        'page': page,
-        'size': size,
-        'sort': sort,
-      },
-    );
-  }
+  }) =>
+      _feed.getMyFeedPosts(
+        status: status,
+        page: page,
+        size: size,
+        sort: sort,
+      );
 
-  /// Forum / feed topic categories (same contract as danbox `GET /api/forum/categories`).
-  Future<Response<dynamic>> getForumCategories() async {
-    return _dio.get('${ApiConfig.campaignUrl}/forum/categories');
-  }
+  @Deprecated('Use FeedService.getFeedPostById() instead')
+  Future<Response<dynamic>> getFeedPostById(int id) =>
+      _feed.getFeedPostById(id);
 
-  Future<Response<dynamic>> getFeedPostById(int id) async {
-    return _dio.get('${ApiConfig.campaignUrl}/feed-posts/$id');
-  }
+  @Deprecated('Use FeedService.createFeedPost() instead')
+  Future<Response<dynamic>> createFeedPost(Map<String, dynamic> body) =>
+      _feed.createFeedPost(body);
 
-  Future<Response<dynamic>> createFeedPost(Map<String, dynamic> body) async {
-    return _dio.post(
-      '${ApiConfig.campaignUrl}/feed-posts',
-      data: body,
-    );
-  }
+  @Deprecated('Use FeedService.updateFeedPost() instead')
+  Future<Response<dynamic>> updateFeedPost(
+    int id,
+    Map<String, dynamic> body,
+  ) =>
+      _feed.updateFeedPost(id, body);
 
-  /// Full update (author only): title, content, status, target*, categoryId.
-  Future<Response<dynamic>> updateFeedPost(int id, Map<String, dynamic> body) async {
-    return _dio.put(
-      '${ApiConfig.campaignUrl}/feed-posts/$id',
-      data: body,
-    );
-  }
+  @Deprecated('Use FeedService.deleteFeedPost() instead')
+  Future<Response<dynamic>> deleteFeedPost(int id) =>
+      _feed.deleteFeedPost(id);
 
-  Future<Response<dynamic>> deleteFeedPost(int id) async {
-    return _dio.delete('${ApiConfig.campaignUrl}/feed-posts/$id');
-  }
+  @Deprecated('Use FeedService.patchFeedPostVisibility() instead')
+  Future<Response<dynamic>> patchFeedPostVisibility(
+    int id,
+    String visibility,
+  ) =>
+      _feed.patchFeedPostVisibility(id, visibility);
 
-  Future<Response<dynamic>> patchFeedPostVisibility(int id, String visibility) async {
-    return _dio.patch(
-      '${ApiConfig.campaignUrl}/feed-posts/$id/visibility',
-      data: <String, dynamic>{'visibility': visibility},
-    );
-  }
+  @Deprecated('Use FeedService.toggleFeedPostLike() instead')
+  Future<Response<dynamic>> toggleFeedPostLike(int postId) =>
+      _feed.toggleFeedPostLike(postId);
 
-  Future<Response<dynamic>> toggleFeedPostLike(int postId) async {
-    return _dio.post('${ApiConfig.campaignUrl}/feed-posts/$postId/like');
-  }
+  @Deprecated('Use FeedService.toggleFeedPostCommentLike() instead')
+  Future<Response<dynamic>> toggleFeedPostCommentLike(int commentId) =>
+      _feed.toggleFeedPostCommentLike(commentId);
 
-  /// Backend returns full `FeedPostResponse`; parse `isLiked`, `likeCount` (and legacy `liked`).
-  Future<Response<dynamic>> toggleFeedPostCommentLike(int commentId) async {
-    return _dio.post(
-      '${ApiConfig.campaignUrl}/feed-posts/comments/$commentId/like',
-    );
-  }
+  @Deprecated('Use FeedService.getFeedPostComments() instead')
+  Future<Response<dynamic>> getFeedPostComments(
+    int postId, {
+    int page = 0,
+    int size = 20,
+    String sort = 'createdAt,desc',
+  }) =>
+      _feed.getFeedPostComments(postId, page: page, size: size, sort: sort);
 
-  Future<Response<dynamic>> updateFeedPostComment(int commentId, String content) async {
-    return _dio.put(
-      '${ApiConfig.campaignUrl}/feed-posts/comments/$commentId',
-      data: <String, dynamic>{'content': content},
-    );
-  }
+  @Deprecated('Use FeedService.createFeedPostComment() instead')
+  Future<Response<dynamic>> createFeedPostComment(
+    int postId,
+    String content, {
+    int? parentCommentId,
+  }) =>
+      _feed.createFeedPostComment(postId, content,
+          parentCommentId: parentCommentId);
 
-  Future<Response<dynamic>> deleteFeedPostComment(int commentId) async {
-    return _dio.delete(
-      '${ApiConfig.campaignUrl}/feed-posts/comments/$commentId',
-    );
-  }
+  @Deprecated('Use FeedService.updateFeedPostComment() instead')
+  Future<Response<dynamic>> updateFeedPostComment(
+    int commentId,
+    String content,
+  ) =>
+      _feed.updateFeedPostComment(commentId, content);
 
-  /// Marks post(s) seen — increments server view count for authenticated user when new.
-  Future<Response<dynamic>> markUserPostSeen(int postId) async {
-    return _dio.post(
-      '${ApiConfig.campaignUrl}/user-post-seen',
-      data: <String, dynamic>{'postId': postId},
-    );
-  }
+  @Deprecated('Use FeedService.deleteFeedPostComment() instead')
+  Future<Response<dynamic>> deleteFeedPostComment(int commentId) =>
+      _feed.deleteFeedPostComment(commentId);
 
-  Future<Response<dynamic>> submitFlag({
-    int? postId,
-    int? campaignId,
-    required String reason,
-  }) async {
-    return _dio.post(
-      '${ApiConfig.campaignUrl}/flags',
-      data: <String, dynamic>{
-        if (postId != null) 'postId': postId,
-        if (campaignId != null) 'campaignId': campaignId,
-        'reason': reason,
-      },
-    );
-  }
+  @Deprecated('Use FeedService.markUserPostSeen() instead')
+  Future<Response<dynamic>> markUserPostSeen(int postId) =>
+      _feed.markUserPostSeen(postId);
 
-  Future<Response<dynamic>> getMyFlags({int page = 0, int size = 20}) async {
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/flags/me',
-      queryParameters: <String, dynamic>{
-        'page': page,
-        'size': size,
-      },
-    );
-  }
+  @Deprecated('Use FeedService.getForumCategories() instead')
+  Future<Response<dynamic>> getForumCategories() =>
+      _feed.getForumCategories();
 
-  Future<Response<dynamic>> getMediaByPostId(int postId) async {
-    return _dio.get('${ApiConfig.mediaUrl}/media/posts/$postId');
-  }
-
-  /// Revision history for a post. No auth required for PUBLISHED posts.
+  @Deprecated('Use FeedService.getFeedPostRevisions() instead')
   Future<Response<dynamic>> getFeedPostRevisions(
     int postId, {
     int page = 0,
     int size = 10,
-  }) async {
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/feed-posts/$postId/revisions',
-      queryParameters: <String, dynamic>{'page': page, 'size': size},
-    );
-  }
+  }) =>
+      _feed.getFeedPostRevisions(postId, page: page, size: size);
 
-  /// Single revision detail.
+  @Deprecated('Use FeedService.getFeedPostRevisionById() instead')
   Future<Response<dynamic>> getFeedPostRevisionById(
     int postId,
     int revisionId,
-  ) async {
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/feed-posts/$postId/revisions/$revisionId',
-    );
-  }
+  ) =>
+      _feed.getFeedPostRevisionById(postId, revisionId);
 
-  Future<Response<dynamic>> updateMedia(
-    int mediaId,
-    Map<String, dynamic> body,
-  ) async {
-    return _dio.patch(
-      '${ApiConfig.mediaUrl}/media/$mediaId',
-      data: body,
-    );
-  }
+  // MEDIA (delegate -> MediaService)
 
-  Future<Response<dynamic>> deleteMedia(int mediaId) async {
-    return _dio.delete('${ApiConfig.mediaUrl}/media/$mediaId');
-  }
-
-  Future<Response<dynamic>> login(String username, String password) async {
-    final Response<dynamic> response = await _dio.post(
-      '${ApiConfig.identityUrl}${ApiConfig.loginEndpoint}',
-      data: <String, dynamic>{
-        'email': username,
-        'password': password,
-      },
-    );
-
-    if (response.statusCode == 200) {
-      final String token = response.data['accessToken'] as String;
-      await _storage.write(key: 'jwt_token', value: token);
-    }
-    return response;
-  }
-
-  Future<Response<dynamic>> register({
-    required String email,
-    required String password,
-    required String fullName,
-    String? phoneNumber,
-  }) async {
-    final Response<dynamic> response = await _dio.post(
-      '${ApiConfig.identityUrl}${ApiConfig.registerEndpoint}',
-      data: <String, dynamic>{
-        'email': email.trim(),
-        'password': password,
-        'fullName': fullName.trim(),
-        if (phoneNumber != null && phoneNumber.trim().isNotEmpty)
-          'phoneNumber': phoneNumber.trim(),
-      },
-    );
-
-    if (response.statusCode == 201) {
-      final String? token = response.data['accessToken'] as String?;
-      if (token != null && token.isNotEmpty) {
-        await _storage.write(key: 'jwt_token', value: token);
-      }
-    }
-    return response;
-  }
-
-  Future<Response<dynamic>> sendPasswordResetOtp(String email) async {
-    return _dio.post(
-      '${ApiConfig.identityUrl}${ApiConfig.sendOtpEndpoint}',
-      data: <String, dynamic>{'email': email.trim()},
-    );
-  }
-
-  Future<Response<dynamic>> verifyPasswordResetOtp({
-    required String email,
-    required String otp,
-  }) async {
-    return _dio.post(
-      '${ApiConfig.identityUrl}${ApiConfig.verifyOtpEndpoint}',
-      data: <String, dynamic>{
-        'email': email.trim(),
-        'otp': otp.trim(),
-      },
-    );
-  }
-
-  Future<Response<dynamic>> resetPassword({
-    required String token,
-    required String newPassword,
-  }) async {
-    return _dio.post(
-      '${ApiConfig.identityUrl}${ApiConfig.resetPasswordEndpoint}',
-      data: <String, dynamic>{
-        'token': token,
-        'newPassword': newPassword,
-      },
-    );
-  }
-
-  /// Sau [verifyPasswordResetOtp]: BE trả JWT `type: password_reset`; endpoint này đánh dấu email đã xác minh (luồng đăng ký danbox).
-  Future<Response<dynamic>> verifyEmailWithToken(String token) async {
-    return _dio.post(
-      '${ApiConfig.identityUrl}${ApiConfig.verifyEmailEndpoint}',
-      data: <String, dynamic>{'token': token},
-    );
-  }
-
-  Future<Response<dynamic>> loginWithGoogle(String idToken) async {
-    final Response<dynamic> response = await _dio.post(
-      '${ApiConfig.identityUrl}${ApiConfig.googleLoginEndpoint}',
-      data: <String, dynamic>{'idToken': idToken},
-    );
-
-    if (response.statusCode == 200) {
-      final String token = response.data['accessToken'] as String;
-      await _storage.write(key: 'jwt_token', value: token);
-    }
-    return response;
-  }
-
-  Future<Response<dynamic>> updateProfile(
-    int userId,
-    Map<String, dynamic> data,
-  ) async {
-    return _dio.put(
-      '${ApiConfig.identityUrl}${ApiConfig.userEndpoint}/$userId',
-      data: data,
-    );
-  }
-
-  Future<String> uploadToSupabase(String filePath, int userId) async {
-    final File file = File(filePath);
-    final List<int> bytes = await file.readAsBytes();
-    final String ext = filePath.split('.').last;
-    final String fileName =
-        '${DateTime.now().millisecondsSinceEpoch}.$ext';
-
-    final String path = 'avatars/$userId/$fileName';
-    final String uploadUrl =
-        '${ApiConfig.supabaseUrl}/storage/v1/object/${ApiConfig.supabaseBucket}/$path';
-
-    String contentType = 'image/jpeg';
-    if (ext.toLowerCase() == 'png') contentType = 'image/png';
-    if (ext.toLowerCase() == 'gif') contentType = 'image/gif';
-    if (ext.toLowerCase() == 'webp') contentType = 'image/webp';
-
-    await _dio.put(
-      uploadUrl,
-      data: bytes,
-      options: Options(
-        headers: <String, String>{
-          'Authorization': 'Bearer ${ApiConfig.supabaseKey}',
-          'Content-Type': contentType,
-          'x-upsert': 'true',
-        },
-      ),
-    );
-
-    return '${ApiConfig.supabaseUrl}/storage/v1/object/public/${ApiConfig.supabaseBucket}/$path';
-  }
-
-  // Campaign APIs
-
-  Future<Response<dynamic>> getCategories() async {
-    return _dio.get('${ApiConfig.campaignUrl}/campaign-categories');
-  }
-
-  Future<Response<dynamic>> createCampaign(
-    Map<String, dynamic> data,
-  ) async {
-    return _dio.post(
-      '${ApiConfig.campaignUrl}/campaigns',
-      data: data,
-    );
-  }
-
-  Future<Response<dynamic>> updateCampaign(
-    int id,
-    Map<String, dynamic> data,
-  ) async {
-    return _dio.put(
-      '${ApiConfig.campaignUrl}/campaigns/$id',
-      data: data,
-    );
-  }
-
-  Future<Response<dynamic>> getUserCampaigns(int userId, {int page = 0, int size = 10}) async {
-    return _dio.get(
-      "${ApiConfig.campaignUrl}/campaigns/fund-owner/$userId/paginated",
-      queryParameters: {
-        'page': page,
-        'size': size,
-      },
-    );
-  }
-
-  Future<Response<dynamic>> deleteCampaign(int id) async {
-    return _dio.delete("${ApiConfig.campaignUrl}/campaigns/$id");
-  }
-
-  Future<Response<dynamic>> getCampaign(int id) async {
-    return _dio.get("${ApiConfig.campaignUrl}/campaigns/$id");
-  }
-
-  Future<Response<dynamic>> followCampaign(int campaignId) async {
-    return _dio.post('${ApiConfig.campaignUrl}/campaign-follows/$campaignId');
-  }
-
-  Future<Response<dynamic>> unfollowCampaign(int campaignId) async {
-    return _dio.delete('${ApiConfig.campaignUrl}/campaign-follows/$campaignId');
-  }
-
-  Future<Response<dynamic>> isFollowingCampaign(int campaignId) async {
-    return _dio.get('${ApiConfig.campaignUrl}/campaign-follows/$campaignId/me');
-  }
-
-  Future<Response<dynamic>> getActiveGoalByCampaign(int campaignId) async {
-    return _dio.get("${ApiConfig.campaignUrl}/fundraising-goals/active/$campaignId");
-  }
-
-  Future<Response<dynamic>> getCampaignFirstImage(int campaignId) async {
-    return _dio.get("${ApiConfig.mediaUrl}/media/campaign/$campaignId/first");
-  }
-
-  // AI APIs
-
-  Future<Response<dynamic>> generateDescription(
-    String prompt, {
-    String? rules,
-  }) async {
-    return _dio.post(
-      '${ApiConfig.aiUrl}/generate-description',
-      data: <String, dynamic>{
-        'prompt': prompt,
-        'rules': rules,
-      },
-    );
-  }
-
-  // Fundraising Goal APIs
-
-  Future<Response<dynamic>> createGoal(
-    Map<String, dynamic> data,
-  ) async {
-    return _dio.post(
-      '${ApiConfig.campaignUrl}/fundraising-goals',
-      data: data,
-    );
-  }
-
-  Future<Response<dynamic>> getGoalsByCampaign(int campaignId) async {
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/fundraising-goals/campaign/$campaignId',
-    );
-  }
-
-  // Expenditure APIs
-
-  Future<Response<dynamic>> createExpenditure(
-    Map<String, dynamic> data,
-  ) async {
-    return _dio.post(
-      '${ApiConfig.campaignUrl}/expenditures',
-      data: data,
-    );
-  }
-
-  Future<Response<dynamic>> getExpendituresByCampaign(
-    int campaignId,
-  ) async {
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/expenditures/campaign/$campaignId',
-    );
-  }
-
-  Future<Response<dynamic>> getExpenditureById(int expenditureId) async {
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/expenditures/$expenditureId',
-    );
-  }
-
-  Future<Response<dynamic>> getExpenditureItemsByCampaign(
-    int campaignId,
-  ) async {
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/expenditures/campaign/$campaignId/items',
-    );
-  }
-
-  Future<Response<dynamic>> getExpenditureItems(int expenditureId) async {
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/expenditures/$expenditureId/items',
-    );
-  }
-
-  Future<Response<dynamic>> getApprovedExpenditureItemsByCampaign(
-    int campaignId,
-  ) async {
-    return _dio.get(
-      '${ApiConfig.campaignUrl}/expenditures/campaign/$campaignId/items/approved',
-    );
-  }
-
-  Future<Response<dynamic>> requestWithdrawal(int expenditureId) async {
-    return _dio.post(
-      '${ApiConfig.campaignUrl}/expenditures/$expenditureId/request-withdrawal',
-    );
-  }
-
-  Future<Response<dynamic>> updateEvidenceStatus(int expenditureId, String status) async {
-    return _dio.patch(
-      '${ApiConfig.campaignUrl}/expenditures/$expenditureId/evidence-status?status=$status',
-    );
-  }
-
-  // Media Asset APIs
-
+  @Deprecated('Use MediaService.uploadMedia() instead')
   Future<Response<dynamic>> uploadMedia(
     File file, {
     int? postId,
@@ -557,185 +417,88 @@ class ApiService {
     int? expenditureId,
     String? mediaType,
     String? description,
-  }) async {
-    String fileName = file.path.split(Platform.pathSeparator).last;
-    if (fileName.isEmpty) {
-      fileName = file.path.split('/').last;
-    }
+  }) =>
+      _media.uploadMedia(
+        file,
+        postId: postId,
+        campaignId: campaignId,
+        expenditureId: expenditureId,
+        mediaType: mediaType,
+        description: description,
+      );
 
-    final FormData formData = FormData.fromMap(<String, dynamic>{
-      'file': await MultipartFile.fromFile(
-        file.path,
-        filename: fileName,
-      ),
-      if (postId != null) 'postId': postId,
-      if (campaignId != null) 'campaignId': campaignId,
-      if (expenditureId != null) 'expenditureId': expenditureId,
-      if (mediaType != null) 'mediaType': mediaType,
-      if (description != null) 'description': description,
-    });
+  @Deprecated('Use MediaService.getMediaByPostId() instead')
+  Future<Response<dynamic>> getMediaByPostId(int postId) =>
+      _media.getMediaByPostId(postId);
 
-    return _dio.post(
-      '${ApiConfig.mediaUrl}/media/upload',
-      data: formData,
-      options: Options(
-        headers: <String, String>{
-          'Content-Type': 'multipart/form-data',
-        },
-      ),
-    );
-  }
+  @Deprecated('Use MediaService.updateMedia() instead')
+  Future<Response<dynamic>> updateMedia(
+    int mediaId,
+    Map<String, dynamic> body,
+  ) =>
+      _media.updateMedia(mediaId, body);
 
+  @Deprecated('Use MediaService.deleteMedia() instead')
+  Future<Response<dynamic>> deleteMedia(int mediaId) =>
+      _media.deleteMedia(mediaId);
+
+  @Deprecated('Use MediaService.linkMediaToCampaign() instead')
   Future<Response<dynamic>> linkMediaToCampaign(
     int mediaId,
     int campaignId,
-  ) async {
-    return _dio.patch(
-      '${ApiConfig.mediaUrl}/media/$mediaId',
-      data: <String, dynamic>{'campaignId': campaignId},
-    );
-  }
+  ) =>
+      _media.linkMediaToCampaign(mediaId, campaignId);
 
-  // Bank Account APIs
+  // CHAT (delegate -> ChatService)
 
-  Future<Response<dynamic>> getMyBankAccounts() async {
-    return _dio.get(
-      '${ApiConfig.identityUrl}${ApiConfig.bankAccountEndpoint}',
-    );
-  }
+  @Deprecated('Use ChatService.getConversations() instead')
+  Future<Response<dynamic>> getConversations() =>
+      _chat.getConversations();
 
-  Future<Response<dynamic>> createBankAccount(
-    Map<String, dynamic> data,
-  ) async {
-    return _dio.post(
-      '${ApiConfig.identityUrl}${ApiConfig.bankAccountEndpoint}',
-      data: data,
-    );
-  }
+  @Deprecated('Use ChatService.getMessagesByConversationId() instead')
+  Future<Response<dynamic>> getMessagesByConversationId(
+    int conversationId,
+  ) =>
+      _chat.getMessagesByConversationId(conversationId);
 
-  Future<Response<dynamic>> updateBankAccount(
-    int id,
-    Map<String, dynamic> data,
-  ) async {
-    return _dio.put(
-      '${ApiConfig.identityUrl}${ApiConfig.bankAccountEndpoint}/$id',
-      data: data,
-    );
-  }
-
-  // Payment-service APIs (Access + Refresh flow ở BE, mobile chỉ dùng access token)
-
-  Future<Response<dynamic>> createPayment(
-    Map<String, dynamic> body,
-  ) async {
-    return _dio.post('${ApiConfig.paymentUrl}/create', data: body);
-  }
-
-  Future<Response<dynamic>> verifyDonationPayment(int donationId) async {
-    return _dio.get('${ApiConfig.paymentUrl}/donation/$donationId/verify');
-  }
-
-  Future<Response<dynamic>> syncDonationQuantity(int donationId) async {
-    return _dio.post('${ApiConfig.paymentUrl}/donation/$donationId/sync-quantity');
-  }
-
-  Future<Response<dynamic>> syncDonationBalance(int donationId) async {
-    return _dio.post('${ApiConfig.paymentUrl}/donation/$donationId/sync-balance');
-  }
-
-  Future<Response<dynamic>> getDonationSummary(List<int> expenditureItemIds) async {
-    return _dio.get(
-      '${ApiConfig.paymentUrl}/donations/summary',
-      queryParameters: <String, dynamic>{
-        'expenditureItemIds': expenditureItemIds.join(','),
-      },
-    );
-  }
-
-  Future<Response<dynamic>> getDonorsByItem(int itemId) async {
-    return _dio.get('${ApiConfig.paymentUrl}/expenditure-item/$itemId/donors');
-  }
-
-  Future<Response<dynamic>> getCampaignProgress(int campaignId) async {
-    return _dio.get(
-      '${ApiConfig.paymentUrl}/campaign/$campaignId/progress',
-    );
-  }
-
-  Future<Response<dynamic>> getRecentDonors(
-    int campaignId, {
-    int limit = 3,
-  }) async {
-    return _dio.get(
-      '${ApiConfig.paymentUrl}/campaign/$campaignId/recent-donations',
-      queryParameters: <String, dynamic>{'limit': limit},
-    );
-  }
-
-  Future<Response<dynamic>> getMyDonations({int limit = 50}) async {
-    return _dio.get(
-      '${ApiConfig.paymentUrl}/my-donations',
-      queryParameters: <String, dynamic>{'limit': limit},
-    );
-  }
-
-  Future<Response<dynamic>> checkExpenditureItemLimit(
-    int expenditureItemId,
-    int quantity,
-  ) async {
-    return _dio.get(
-      '${ApiConfig.paymentUrl}/expenditure-item/$expenditureItemId/check',
-      queryParameters: <String, dynamic>{'quantity': quantity},
-    );
-  }
-
-  // Chat APIs
-
-  Future<Response<dynamic>> getConversations() async {
-    return _dio.get('${ApiConfig.chatUrl}/conversations');
-  }
-
-  Future<Response<dynamic>> getMessagesByConversationId(int conversationId) async {
-    return _dio.get('${ApiConfig.chatUrl}/conversations/$conversationId/messages');
-  }
-
+  @Deprecated('Use ChatService.createConversation() instead')
   Future<Response<dynamic>> createConversation({
     required int fundOwnerId,
     required int campaignId,
     int? staffId,
-  }) async {
-    return _dio.post(
-      '${ApiConfig.chatUrl}/conversations',
-      data: {
-        'fundOwnerId': fundOwnerId,
-        'campaignId': campaignId,
-        if (staffId != null) 'staffId': staffId,
-      },
-    );
-  }
+  }) =>
+      _chat.createConversation(
+        fundOwnerId: fundOwnerId,
+        campaignId: campaignId,
+        staffId: staffId,
+      );
 
-  Future<Response<dynamic>> getConversationByCampaignId(int campaignId) async {
-    return _dio.get('${ApiConfig.chatUrl}/conversations/campaign/$campaignId');
-  }
+  @Deprecated('Use ChatService.getConversationByCampaignId() instead')
+  Future<Response<dynamic>> getConversationByCampaignId(int campaignId) =>
+      _chat.getConversationByCampaignId(campaignId);
 
-  // --- Campaign Task & User APIs ---
-  Future<Response<dynamic>> getTaskByCampaignId(int campaignId) async {
-    return _dio.get('${ApiConfig.campaignUrl}/admin/tasks/campaign/$campaignId');
-  }
+  @Deprecated('Use ChatService.getAppointmentsByDonor() instead')
+  Future<Response<dynamic>> getAppointmentsByDonor(int donorId) =>
+      _chat.getAppointmentsByDonor(donorId);
 
-  Future<Response<dynamic>> getUserById(int userId) async {
-    return _dio.get('${ApiConfig.identityUrl}/users/$userId');
-  }
+  @Deprecated('Use ChatService.updateAppointmentStatus() instead')
+  Future<Response<dynamic>> updateAppointmentStatus(
+    int appointmentId,
+    String status,
+  ) =>
+      _chat.updateAppointmentStatus(appointmentId, status);
 
-  // --- Appointment APIs ---
-  Future<Response<dynamic>> getAppointmentsByDonor(int donorId) async {
-    return _dio.get('${ApiConfig.appointmentUrl}/donor/$donorId');
-  }
+  // FLAGS (delegate -> FlagService)
 
-  Future<Response<dynamic>> updateAppointmentStatus(int appointmentId, String status) async {
-    return _dio.patch(
-      '${ApiConfig.appointmentUrl}/$appointmentId/status',
-      queryParameters: {'status': status},
-    );
-  }
+  @Deprecated('Use FlagService.submitFlag() instead')
+  Future<Response<dynamic>> submitFlag({
+    int? postId,
+    int? campaignId,
+    required String reason,
+  }) =>
+      _flag.submitFlag(postId: postId, campaignId: campaignId, reason: reason);
+
+  @Deprecated('Use FlagService.getMyFlags() instead')
+  Future<Response<dynamic>> getMyFlags({int page = 0, int size = 20}) =>
+      _flag.getMyFlags(page: page, size: size);
 }

@@ -12,6 +12,8 @@ import 'chat_list_screen.dart';
 import 'appointment_schedule_screen.dart';
 import 'my_flags_screen.dart';
 import 'my_feed_screen.dart';
+import 'kyc/kyc_screen.dart';
+import 'notifications/notification_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -38,6 +40,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   static const Color webTextDark = Color(0xFF1F2937);
   static const Color webTextGray = Color(0xFF4B5563);
   static const Color webBorderGray = Color(0xFFE5E7EB);
+  static const Color webAmber = Color(0xFFF59E0B);
 
   @override
   void initState() {
@@ -132,6 +135,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
               )
             : null,
         actions: [
+          // Notification bell
+          IconButton(
+            icon: const Icon(Icons.notifications_outlined, color: webTextDark),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const NotificationScreen()),
+              );
+            },
+          ),
           TextButton(
             onPressed: () {
               if (_isEditing) {
@@ -228,25 +240,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: webEmerald.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      user.role.toUpperCase(),
-                      style: const TextStyle(
-                        color: webEmerald,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
-                        letterSpacing: 1.2,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: webEmerald.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          user.role.toUpperCase(),
+                          style: const TextStyle(
+                            color: webEmerald,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      // KYC status badge
+                      _buildKycBadge(user.kycStatus ?? 'NOT_SUBMITTED'),
+                    ],
                   ),
+                  // Trust Score
+                  if (user.trustScore != null) ...[
+                    const SizedBox(height: 12),
+                    _buildTrustScoreIndicator(user.trustScore!),
+                  ],
                 ],
               ),
             ),
+
+            const SizedBox(height: 16),
+
+            // KYC Verification Card
+            _buildKycCard(user.kycStatus ?? 'NOT_SUBMITTED', user.kycVerified),
 
             const SizedBox(height: 16),
 
@@ -434,6 +464,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     },
                   ),
                   _buildQuickAction(
+                    icon: Icons.notifications_outlined,
+                    title: "Thông báo",
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const NotificationScreen()),
+                      );
+                    },
+                  ),
+                  _buildQuickAction(
                     icon: Icons.chat_bubble_outline,
                     title: "Chat",
                     onTap: () {
@@ -523,6 +562,250 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
             const SizedBox(height: 48),
           ],
+        ),
+      ),
+    );
+  }
+
+  // ─── KYC Badge ───────────────────────────────────────────────────────────────
+  Widget _buildKycBadge(String status) {
+    Color bgColor;
+    Color textColor;
+    String label;
+    IconData icon;
+
+    switch (status) {
+      case 'APPROVED':
+        bgColor = webEmerald.withOpacity(0.1);
+        textColor = webEmerald;
+        label = 'Đã xác minh';
+        icon = Icons.verified;
+        break;
+      case 'PENDING':
+        bgColor = webAmber.withOpacity(0.1);
+        textColor = webAmber;
+        label = 'Chờ duyệt';
+        icon = Icons.hourglass_top;
+        break;
+      case 'REJECTED':
+        bgColor = Colors.red.withOpacity(0.1);
+        textColor = Colors.red;
+        label = 'Bị từ chối';
+        icon = Icons.cancel;
+        break;
+      default:
+        bgColor = Colors.grey.withOpacity(0.1);
+        textColor = webTextGray;
+        label = 'Chưa xác minh';
+        icon = Icons.shield_outlined;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: textColor),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Trust Score Indicator ───────────────────────────────────────────────────
+  Widget _buildTrustScoreIndicator(double score) {
+    Color scoreColor;
+    if (score >= 80) {
+      scoreColor = webEmerald;
+    } else if (score >= 50) {
+      scoreColor = webAmber;
+    } else {
+      scoreColor = Colors.red;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: scoreColor.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: scoreColor.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.star_rounded, size: 18, color: scoreColor),
+          const SizedBox(width: 6),
+          Text(
+            'Điểm uy tín: ${score.toStringAsFixed(0)}',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: scoreColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── KYC Verification Card ──────────────────────────────────────────────────
+  Widget _buildKycCard(String status, bool kycVerified) {
+    if (kycVerified || status == 'APPROVED') {
+      // Đã xác minh → compact card
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: webEmerald.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: webEmerald.withOpacity(0.2)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: webEmerald.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.verified_user, color: webEmerald, size: 24),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Danh tính đã xác minh',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: webEmerald,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Tài khoản của bạn đã được xác minh KYC.',
+                      style: TextStyle(fontSize: 12, color: webTextGray),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.check_circle, color: webEmerald),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Chưa xác minh / bị từ chối / đang chờ → CTA card
+    final bool isPending = status == 'PENDING';
+    final bool isRejected = status == 'REJECTED';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const KycScreen()),
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isRejected
+                  ? Colors.red.withOpacity(0.3)
+                  : isPending
+                      ? webAmber.withOpacity(0.3)
+                      : webPrimary.withOpacity(0.2),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: isRejected
+                      ? Colors.red.withOpacity(0.1)
+                      : isPending
+                          ? webAmber.withOpacity(0.1)
+                          : webPrimary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  isRejected
+                      ? Icons.gpp_bad
+                      : isPending
+                          ? Icons.hourglass_top
+                          : Icons.shield_outlined,
+                  color: isRejected
+                      ? Colors.red
+                      : isPending
+                          ? webAmber
+                          : webPrimary,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isPending
+                          ? 'Đang chờ xác minh'
+                          : isRejected
+                              ? 'Xác minh bị từ chối'
+                              : 'Xác minh danh tính',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: isRejected ? Colors.red : webTextDark,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isPending
+                          ? 'Hồ sơ đang được xem xét...'
+                          : isRejected
+                              ? 'Nhấn để cập nhật và gửi lại.'
+                              : 'Hoàn tất KYC để tạo chiến dịch.',
+                      style: const TextStyle(fontSize: 12, color: webTextGray),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 16,
+                color: webTextGray.withOpacity(0.5),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -768,4 +1051,3 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 }
-

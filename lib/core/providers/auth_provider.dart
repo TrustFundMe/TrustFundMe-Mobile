@@ -233,15 +233,16 @@ class AuthProvider with ChangeNotifier {
   /// Sau [verify-email] trên BE (luồng xác minh OTP đăng ký).
   void applyEmailVerified() {
     if (_user == null) return;
-    _user = UserModel(
-      id: _user!.id,
-      email: _user!.email,
-      fullName: _user!.fullName,
-      phoneNumber: _user!.phoneNumber,
-      avatarUrl: _user!.avatarUrl,
-      role: _user!.role,
-      verified: true,
-      isActive: _user!.isActive,
+    _user = _user!.copyWith(verified: true);
+    notifyListeners();
+  }
+
+  /// Sau khi KYC submit/approve → cập nhật local state.
+  void applyKycStatus(String status) {
+    if (_user == null) return;
+    _user = _user!.copyWith(
+      kycStatus: status,
+      kycVerified: status == 'APPROVED',
     );
     notifyListeners();
   }

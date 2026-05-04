@@ -16,6 +16,8 @@ class ApiConfig {
       dotenv.get('AI_PORT', fallback: '8089');
   static String get paymentServicePort =>
       dotenv.get('PAYMENT_PORT', fallback: '8087');
+  static String get notificationServicePort =>
+      dotenv.get('NOTIFICATION_PORT', fallback: '8088');
 
   static String get identityUrl => '$baseUrl:$identityServicePort/api';
   static String get campaignUrl => '$baseUrl:$campaignServicePort/api';
@@ -24,6 +26,7 @@ class ApiConfig {
   static String get paymentUrl => '$baseUrl:$paymentServicePort/api/payments';
   static String get chatUrl => '$baseUrl:$chatbotServicePort/api';
   static String get appointmentUrl => '$baseUrl:$chatbotServicePort/api/appointments';
+  static String get notificationUrl => '$baseUrl:$notificationServicePort/api';
   static String get chatWsUrl {
     final String wsBase = baseUrl.replaceFirst('http', 'ws');
     return '$wsBase:$chatbotServicePort/ws/websocket';
