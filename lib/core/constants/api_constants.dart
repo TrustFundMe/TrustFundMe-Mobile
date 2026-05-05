@@ -24,7 +24,7 @@ class ApiConfig {
   static String get mediaUrl => '$baseUrl:$mediaServicePort/api';
   static String get aiUrl => '$baseUrl:$aiServicePort/api';
   static String get paymentUrl => '$baseUrl:$paymentServicePort/api/payments';
-  static String get chatUrl => '$baseUrl:$chatbotServicePort/api';
+  static String get chatUrl => '$baseUrl:$chatbotServicePort/api/chat';
   static String get appointmentUrl => '$baseUrl:$chatbotServicePort/api/appointments';
   static String get notificationUrl => '$baseUrl:$notificationServicePort/api';
   static String get chatWsUrl {
