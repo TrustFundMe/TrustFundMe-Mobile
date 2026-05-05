@@ -33,15 +33,15 @@ class CampaignModel {
 
   factory CampaignModel.fromJson(Map<String, dynamic> json) {
     return CampaignModel(
-      id: json['id'] as int,
+      id: (json['id'] as num?)?.toInt() ?? 0,
       title: (json['title'] ?? '') as String,
       type: json['type'] as String?,
       description: json['description'] as String?,
       coverImageUrl: json['coverImageUrl'] as String?,
       categoryName: json['categoryName'] as String?,
       categoryIconUrl: json['categoryIconUrl'] as String?,
-      fundOwnerId: json['fundOwnerId'] as int?,
-      assignedStaffId: json['assignedStaffId'] as int?,
+      fundOwnerId: (json['fundOwnerId'] as num?)?.toInt(),
+      assignedStaffId: (json['assignedStaffId'] as num?)?.toInt(),
       assignedStaffName: json['assignedStaffName'] as String?,
       status: json['status'] as String?,
       rejectionReason: json['rejectionReason'] as String?,

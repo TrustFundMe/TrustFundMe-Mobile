@@ -180,23 +180,38 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
 
       // Parse campaign
       final dynamic r0 = results[0];
-      final dynamic cRaw = r0 is Response ? r0.data : null;
+      final dynamic cRaw = _unwrap(r0);
       if (cRaw is Map<String, dynamic>) {
         _campaign = CampaignModel.fromJson(cRaw);
+      } else {
+        // If critical data is missing or in wrong format, throw to show error state
+        throw Exception('Invalid campaign data format');
       }
 
       // Parse progress
       final dynamic r1 = results[1];
-      final dynamic pRaw = r1 is Response ? r1.data : null;
+      final dynamic pRaw = _unwrap(r1);
       if (pRaw is Map<String, dynamic>) {
-        _progress = CampaignProgressModel.fromJson(pRaw);
+        try {
+          _progress = CampaignProgressModel.fromJson(pRaw);
+        } catch (_) {}
       }
 
       // Parse donors
       final dynamic r2 = results[2];
-      final dynamic dRaw = r2 is Response ? r2.data : null;
+      final dynamic dRaw = _unwrap(r2);
       if (dRaw is List) {
         _donors = dRaw
+            .whereType<Map<String, dynamic>>()
+            .map((e) {
+              try { return RecentDonorModel.fromJson(e); } catch (_) { return null; }
+            })
+            .whereType<RecentDonorModel>()
+            .toList();
+      } else if (dRaw is Map<String, dynamic> && dRaw['content'] is List) {
+        // Handle paginated donors if backend returns it that way
+        final List<dynamic> content = dRaw['content'] as List<dynamic>;
+        _donors = content
             .whereType<Map<String, dynamic>>()
             .map((e) {
               try { return RecentDonorModel.fromJson(e); } catch (_) { return null; }
@@ -207,18 +222,23 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
 
       // Parse expenditures → plans
       final dynamic r3 = results[3];
-      final dynamic eRaw = r3 is Response ? r3.data : null;
+      final dynamic eRaw = _unwrap(r3);
       if (eRaw is List) {
-        _plans = _parseExpenditures(eRaw);
+        try {
+          _plans = _parseExpenditures(eRaw);
+        } catch (_) {}
+      } else if (eRaw is Map<String, dynamic> && eRaw['content'] is List) {
+        try {
+          _plans = _parseExpenditures(eRaw['content'] as List<dynamic>);
+        } catch (_) {}
       }
 
       // Parse media → gallery
       final dynamic r4 = results[4];
-      final dynamic mRaw = r4 is Response ? r4.data : null;
+      final dynamic mRaw = _unwrap(r4);
       if (mRaw is List) {
         final List<String> photos = [];
         String? coverUrl;
-        // coverImageUrl có thể là id (int/string) hoặc URL
         final coverRef = _campaign.coverImageUrl ?? '';
         final coverRefInt = int.tryParse(coverRef);
         for (final m in mRaw) {
@@ -226,11 +246,10 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
             final type = (m['mediaType'] ?? m['type'] ?? '').toString();
             final url = (m['url'] ?? '').toString();
             if (url.isEmpty) continue;
-            // Kiểm tra nếu media id match coverImage id
             final mediaId = m['id'];
             if (coverRefInt != null && mediaId == coverRefInt) {
               coverUrl = url;
-            } else if (mediaId.toString() == coverRef) {
+            } else if (mediaId != null && mediaId.toString() == coverRef) {
               coverUrl = url;
             }
             if (type == 'PHOTO' || type == 'VIDEO') {
@@ -338,8 +357,8 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
   List<ExpenditurePlanModel> _parseExpenditures(List<dynamic> raw) {
     final sorted = [...raw]
       ..sort((a, b) {
-        final aId = (a is Map ? a['id'] : 0) as int? ?? 0;
-        final bId = (b is Map ? b['id'] : 0) as int? ?? 0;
+        final aId = (a is Map ? (a['id'] as num?)?.toInt() : 0) ?? 0;
+        final bId = (b is Map ? (b['id'] as num?)?.toInt() : 0) ?? 0;
         return aId.compareTo(bId);
       });
 
@@ -354,9 +373,9 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
             return ExpenditureCategoryItemModel(name: '');
           }
           return ExpenditureCategoryItemModel(
-            id: item['id'] as int?,
+            id: (item['id'] as num?)?.toInt(),
             name: (item['category'] ?? item['name'] ?? 'Hạng mục') as String,
-            expectedQuantity: (item['quantity'] ?? item['expectedQuantity'] ?? 0) as int,
+            expectedQuantity: (item['quantity'] ?? item['expectedQuantity'] as num? ?? 0).toInt(),
             expectedPrice: (item['expectedPrice'] as num?)?.toInt() ?? 0,
             actualQuantity: (item['actualQuantity'] as num?)?.toInt() ?? 0,
             price: (item['price'] as num?)?.toInt() ?? 0,
@@ -365,7 +384,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         }).toList();
 
         cats.add(ExpenditureCategoryModel(
-          id: cat['id'] as int?,
+          id: (cat['id'] as num?)?.toInt(),
           name: (cat['name'] ?? 'Nhóm hạng mục') as String,
           description: cat['description'] as String?,
           expectedAmount: (cat['expectedAmount'] as num?)?.toInt() ?? 0,
@@ -385,9 +404,9 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       );
 
       return ExpenditurePlanModel(
-        id: exp['id'] as int,
+        id: (exp['id'] as num?)?.toInt() ?? 0,
         title: (exp['plan'] ?? 'Milestone') as String,
-        amount: (exp['totalExpectedAmount'] ?? exp['totalAmount'] ?? 0) as int,
+        amount: (exp['totalExpectedAmount'] ?? exp['totalAmount'] as num? ?? 0).toInt(),
         description: cats.where((c) => (c.description ?? '').trim().isNotEmpty).firstOrNull?.description,
         date: date,
         status: exp['status'] as String?,
@@ -569,6 +588,29 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     } finally {
       if (mounted) setState(() => _donateLoading = false);
     }
+  }
+
+  /// Unwrap response data if it is wrapped in { data: ... } or { code, message, data }.
+  dynamic _unwrap(dynamic r) {
+    if (r is! Response) return r;
+    final dynamic raw = r.data;
+    if (raw is! Map<String, dynamic>) return raw;
+
+    // Priority 1: Direct 'data' field
+    if (raw.containsKey('data')) {
+      final dynamic d = raw['data'];
+      // If it's another map, it might be further wrapped (rare but happens in some gateways)
+      if (d is Map<String, dynamic> && d.containsKey('data') && d.length == 1) {
+        return d['data'];
+      }
+      return d;
+    }
+
+    // Priority 2: 'result' field (some APIs use this)
+    if (raw.containsKey('result')) return raw['result'];
+
+    // Priority 3: Fallback to the whole map if it looks like the actual object (has 'id' or other known fields)
+    return raw;
   }
 
   @override

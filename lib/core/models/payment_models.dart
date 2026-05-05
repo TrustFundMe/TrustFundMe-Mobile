@@ -98,10 +98,10 @@ class CampaignProgressModel {
 
   factory CampaignProgressModel.fromJson(Map<String, dynamic> json) {
     return CampaignProgressModel(
-      campaignId: json['campaignId'] as int,
+      campaignId: (json['campaignId'] as num?)?.toInt() ?? 0,
       raisedAmount: (json['raisedAmount'] as num?)?.toInt() ?? 0,
       goalAmount: (json['goalAmount'] as num?)?.toInt() ?? 0,
-      progressPercentage: json['progressPercentage'] as int? ?? 0,
+      progressPercentage: (json['progressPercentage'] as num?)?.toInt() ?? 0,
       donorCount: (json['donorCount'] as num?)?.toInt() ?? 0,
     );
   }
