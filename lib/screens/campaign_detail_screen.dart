@@ -8,6 +8,7 @@ import '../core/api/api_service.dart';
 import '../core/api/donation_service.dart';
 import '../core/api/expenditure_service.dart';
 import '../core/api/media_service.dart';
+import '../core/api/trust_score_service.dart';
 import '../core/api/user_service.dart';
 import '../core/models/campaign_model.dart';
 import '../core/models/payment_models.dart';
@@ -111,6 +112,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
   final ExpenditureService _expenditureSvc = ExpenditureService();
   final MediaService _mediaSvc = MediaService();
   final UserService _userSvc = UserService();
+  final TrustScoreService _trustScoreSvc = TrustScoreService();
 
   late CampaignModel _campaign;
   CampaignProgressModel? _progress;
@@ -164,12 +166,13 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     if (mounted) setState(() { _loading = true; _errorMessage = null; });
 
     try {
-      // Phase 1: Critical data in parallel
+      // Phase 1: Critical data in parallel — each non-critical call has catchError
+      // so a single service failure doesn't crash the entire page.
       final results = await Future.wait<dynamic>([
         _api.getCampaign(_campaign.id),
-        _donationSvc.getCampaignProgress(_campaign.id),
-        _donationSvc.getRecentDonors(_campaign.id, limit: 10),
-        _expenditureSvc.getExpendituresByCampaign(_campaign.id),
+        _donationSvc.getCampaignProgress(_campaign.id).then<dynamic>((r) => r).catchError((_) => null),
+        _donationSvc.getRecentDonors(_campaign.id, limit: 10).then<dynamic>((r) => r).catchError((_) => null),
+        _expenditureSvc.getExpendituresByCampaign(_campaign.id).then<dynamic>((r) => r).catchError((_) => null),
         _mediaSvc.getMediaByCampaignId(_campaign.id).then<dynamic>((r) => r).catchError((_) => null),
       ]);
 
@@ -268,18 +271,27 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         _userSvc.getUserById(ownerId).then<dynamic>((r) => r).catchError((_) => null),
         _api.isFollowingCampaign(_campaign.id).then<dynamic>((r) => r).catchError((_) => null),
         _api.getMyFlags(page: 0, size: 100).then<dynamic>((r) => r).catchError((_) => null),
+        _trustScoreSvc.getUserScore(ownerId).then<dynamic>((r) => r).catchError((_) => null),
       ]);
 
       if (!mounted) return;
 
-      // Owner info
+      // Owner info — backend returns user object directly (e.g. {id, fullName, avatarUrl, ...}).
+      // Some responses may wrap it in {data: {...}}, so we check both formats.
       final dynamic s0 = results[0];
       final dynamic uRaw = s0 is Response ? s0.data : null;
       if (uRaw is Map<String, dynamic>) {
-        final data = uRaw['data'] ?? uRaw;
-        if (data is Map<String, dynamic>) {
-          _creatorName = (data['fullName'] ?? '') as String;
-          _creatorAvatar = (data['avatarUrl'] ?? '') as String;
+        // Try direct fields first (backend returns user at top level)
+        if (uRaw.containsKey('fullName')) {
+          _creatorName = (uRaw['fullName'] ?? '') as String;
+          _creatorAvatar = (uRaw['avatarUrl'] ?? '') as String;
+        } else {
+          // Fallback: response might be wrapped in {data: {...}}
+          final data = uRaw['data'];
+          if (data is Map<String, dynamic>) {
+            _creatorName = (data['fullName'] ?? '') as String;
+            _creatorAvatar = (data['avatarUrl'] ?? '') as String;
+          }
         }
       }
 
@@ -300,6 +312,20 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         if (content is List) {
           _flagged = content.any((f) =>
               f is Map<String, dynamic> && f['campaignId'] == _campaign.id);
+        }
+      } else if (flagRaw is List) {
+        // Some backends return flags as a direct list
+        _flagged = (flagRaw as List).any((f) =>
+            f is Map<String, dynamic> && f['campaignId'] == _campaign.id);
+      }
+
+      // Trust score
+      final dynamic s3 = results[3];
+      final dynamic tsRaw = s3 is Response ? s3.data : null;
+      if (tsRaw is Map<String, dynamic>) {
+        final totalScore = tsRaw['totalScore'];
+        if (totalScore is num && totalScore > 0) {
+          _creatorTrustScore = totalScore.toInt();
         }
       }
 
@@ -386,15 +412,19 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       if (data is! Map<String, dynamic>) return;
       final content = data['content'] as List<dynamic>? ?? [];
 
-      final expRes = await _expenditureSvc.getExpendituresByCampaign(_campaign.id);
       final expenditureIds = <int>{};
-      if (expRes.data is List) {
-        for (final row in (expRes.data as List)) {
-          if (row is Map<String, dynamic>) {
-            final id = row['id'];
-            if (id is int) expenditureIds.add(id);
+      try {
+        final expRes = await _expenditureSvc.getExpendituresByCampaign(_campaign.id);
+        if (expRes.data is List) {
+          for (final row in (expRes.data as List)) {
+            if (row is Map<String, dynamic>) {
+              final id = row['id'];
+              if (id is int) expenditureIds.add(id);
+            }
           }
         }
+      } catch (_) {
+        // Expenditure fetch failed — proceed with campaign-only posts
       }
 
       final list = content
