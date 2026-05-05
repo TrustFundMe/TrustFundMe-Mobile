@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../core/api/campaign_service.dart';
 import '../core/api/donation_service.dart';
+import '../core/api/user_service.dart';
 import '../core/models/campaign_model.dart';
 import '../core/models/campaign_category_model.dart';
 import '../core/models/payment_models.dart';
@@ -28,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // ─── Services ──────────────────────────────────────────────────────────────
   final CampaignService _campaignSvc = CampaignService();
   final DonationService _donationSvc = DonationService();
+  final UserService _userSvc = UserService();
 
   // ─── State ─────────────────────────────────────────────────────────────────
   final ScrollController _scrollCtrl = ScrollController();
@@ -40,6 +42,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<CampaignModel> _campaigns = <CampaignModel>[];
   final Map<int, CampaignProgressModel> _progressMap =
       <int, CampaignProgressModel>{};
+  /// Maps fundOwnerId → fullName for displaying on campaign cards.
+  final Map<int, String> _ownerNameMap = <int, String>{};
 
   bool _loading = true;
   bool _loadingMore = false;
@@ -155,8 +159,9 @@ class _HomeScreenState extends State<HomeScreen> {
         _loadingMore = false;
       });
 
-      // Load progress in background
+      // Load progress and owner names in background
       _loadProgressInBackground(chunk);
+      _loadOwnerNamesInBackground(chunk);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -180,6 +185,40 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       } catch (_) {
         // Silent fail for background data
+      }
+    }
+  }
+
+  /// Batch-fetch fund owner names for campaign cards.
+  Future<void> _loadOwnerNamesInBackground(List<CampaignModel> campaigns) async {
+    // Collect unique owner IDs that we haven't fetched yet
+    final Set<int> toFetch = <int>{};
+    for (final CampaignModel c in campaigns) {
+      final int? ownerId = c.fundOwnerId;
+      if (ownerId != null && !_ownerNameMap.containsKey(ownerId)) {
+        toFetch.add(ownerId);
+      }
+    }
+    if (toFetch.isEmpty) return;
+
+    for (final int ownerId in toFetch) {
+      try {
+        final res = await _userSvc.getUserById(ownerId);
+        final dynamic data = res.data;
+        if (data is Map<String, dynamic>) {
+          // Backend returns user directly (e.g. {fullName, avatarUrl, ...})
+          // or wrapped in {data: {...}}
+          final String? name = data.containsKey('fullName')
+              ? data['fullName'] as String?
+              : (data['data'] is Map<String, dynamic>
+                  ? (data['data'] as Map<String, dynamic>)['fullName'] as String?
+                  : null);
+          if (name != null && name.isNotEmpty && mounted) {
+            setState(() => _ownerNameMap[ownerId] = name);
+          }
+        }
+      } catch (_) {
+        // Silent fail — card will show fallback text
       }
     }
   }
@@ -392,9 +431,13 @@ class _HomeScreenState extends State<HomeScreen> {
           (context, index) {
             final campaign = _campaigns[index];
             final progress = _progressMap[campaign.id];
+            final String? ownerName = campaign.fundOwnerId != null
+                ? _ownerNameMap[campaign.fundOwnerId!]
+                : null;
             return _CampaignCard(
               campaign: campaign,
               progress: progress,
+              ownerName: ownerName,
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
@@ -548,11 +591,13 @@ class _CampaignCard extends StatelessWidget {
   const _CampaignCard({
     required this.campaign,
     this.progress,
+    this.ownerName,
     required this.onTap,
   });
 
   final CampaignModel campaign;
   final CampaignProgressModel? progress;
+  final String? ownerName;
   final VoidCallback onTap;
 
   static String _formatCurrency(int amount) {
@@ -662,7 +707,7 @@ class _CampaignCard extends StatelessWidget {
                       const SizedBox(width: 4),
                       Flexible(
                         child: Text(
-                          campaign.assignedStaffName ??
+                          ownerName ??
                               'Người tạo #${campaign.fundOwnerId ?? ''}',
                           style: TextStyle(
                             fontSize: 12,
