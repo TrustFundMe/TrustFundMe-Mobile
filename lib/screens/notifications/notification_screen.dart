@@ -42,7 +42,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
   Future<void> _loadNotifications() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final user = authProvider.user;
-    if (user == null) return;
+    if (user == null) {
+      debugPrint('[NotificationScreen] user is null — skipping load');
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -50,17 +53,21 @@ class _NotificationScreenState extends State<NotificationScreen> {
     });
 
     try {
+      debugPrint('[NotificationScreen] Loading notifications for userId=${user.id}');
       final response = await _notifService.getByUserId(user.id);
+      debugPrint('[NotificationScreen] Response status=${response.statusCode}');
       if (response.statusCode == 200 && response.data != null) {
         final List<dynamic> rawList = response.data is List
             ? response.data as List<dynamic>
             : (response.data['content'] as List<dynamic>? ?? []);
+        debugPrint('[NotificationScreen] Loaded ${rawList.length} notifications');
         _notifications = rawList
             .map((e) =>
                 NotificationModel.fromJson(e as Map<String, dynamic>))
             .toList();
       }
     } catch (e) {
+      debugPrint('[NotificationScreen] Error loading notifications: $e');
       _error = ErrorHandler.handle(e);
     }
 

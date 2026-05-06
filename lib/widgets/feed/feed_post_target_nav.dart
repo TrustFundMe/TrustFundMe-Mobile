@@ -132,8 +132,9 @@ class FeedPostTargetPill extends StatelessWidget {
   String _cleanTargetName(String value) {
     String cleaned = value.trim();
     // Backend đôi khi trả tiền tố kỹ thuật kiểu `evidence...` trước tên đợt chi.
+    // Dùng [a-zA-Z0-9_]* thay vì \S* để không ăn mất ký tự Unicode (Đợt, ...).
     cleaned = cleaned.replaceFirst(
-      RegExp(r'^evidence\S*\s*[-:|]?\s*', caseSensitive: false),
+      RegExp(r'^evidence[a-zA-Z0-9_]*\s*[-:|]?\s*', caseSensitive: false),
       '',
     );
     cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
@@ -168,7 +169,7 @@ class FeedPostTargetPill extends StatelessWidget {
         (!isCampaign && _isEvidenceTarget(originalTargetName));
     final String expenditureLabel = _formatExpenditureLabel(rawName, tid);
     final String label = evidence
-        ? (rawName.isEmpty ? 'Minh chứng chi tiêu' : 'Minh chứng • $expenditureLabel')
+        ? 'Minh chứng'
         : (isCampaign
             ? (rawName.isEmpty ? 'Chiến dịch #$tid' : rawName)
             : expenditureLabel);

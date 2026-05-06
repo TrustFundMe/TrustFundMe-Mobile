@@ -13,6 +13,7 @@ import '../widgets/feed/create_feed_post_sheet.dart';
 import '../widgets/feed/feed_comments_panel.dart';
 import '../widgets/feed/feed_dwell_tracker.dart';
 import '../widgets/feed/feed_post_attachments.dart';
+import '../widgets/safe_network_avatar.dart';
 import '../widgets/feed/feed_post_target_nav.dart';
 import '../widgets/flags/flag_reason_sheet.dart';
 import '../core/utils/flag_error_resolver.dart';
@@ -71,9 +72,10 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   static String _cleanEvidenceTitle(String? raw) {
     final String t = (raw ?? '').trim();
     if (t.isEmpty) return '';
+    // Dùng [a-zA-Z0-9_]* thay vì \S* để không ăn mất ký tự Unicode (Đợt, ...).
     return t
         .replaceFirst(
-          RegExp(r'^evidence\S*\s*[-:|]?\s*', caseSensitive: false),
+          RegExp(r'^evidence[a-zA-Z0-9_]*\s*[-:|]?\s*', caseSensitive: false),
           '',
         )
         .replaceAll(RegExp(r'\s+'), ' ')
@@ -99,7 +101,8 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   String _displayAuthorName(String raw) {
     final String name = raw.trim();
     if (name.isEmpty) return 'Thành viên cộng đồng';
-    if (RegExp(r'^evidence\d*$', caseSensitive: false).hasMatch(name)) {
+    // Catch mọi dạng: evidence, evidence33, evidenceABC, evidence_xyz, ...
+    if (RegExp(r'^evidence[a-zA-Z0-9_]*$', caseSensitive: false).hasMatch(name)) {
       return 'Thành viên cộng đồng';
     }
     return name;
@@ -153,11 +156,15 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   String _statusVi(String raw) {
     switch (raw.toUpperCase()) {
       case 'PENDING':
-        return 'Chờ xử lý';
+        return 'Chờ duyệt';
       case 'PENDING_REVIEW':
         return 'Chờ xét duyệt';
+      case 'SUBMITTED':
+        return 'Đã nộp';
+      case 'NOT_SUBMITTED':
+        return 'Chưa nộp';
       case 'APPROVED':
-        return 'Đã phê duyệt';
+        return 'Đã duyệt';
       case 'WITHDRAWAL_REQUESTED':
         return 'Đã yêu cầu rút tiền';
       case 'DISBURSED':
@@ -760,25 +767,17 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                   Row(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: <Widget>[
-                                      CircleAvatar(
+                                      SafeNetworkAvatar(
+                                        imageUrl: _post!.authorAvatar,
+                                        name: _displayAuthorName(_post!.authorName).isNotEmpty
+                                            ? _displayAuthorName(_post!.authorName)
+                                            : 'T',
                                         radius: 22,
                                         backgroundColor: const Color(0xFFF3F4F6),
-                                        backgroundImage: _post!.authorAvatar != null &&
-                                                _post!.authorAvatar!.isNotEmpty
-                                            ? NetworkImage(_post!.authorAvatar!)
-                                            : null,
-                                        child: _post!.authorAvatar == null ||
-                                                _post!.authorAvatar!.isEmpty
-                                            ? Text(
-                                                _displayAuthorName(_post!.authorName).isNotEmpty
-                                                    ? _displayAuthorName(_post!.authorName)[0].toUpperCase()
-                                                    : '?',
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w800,
-                                                  color: _muted,
-                                                ),
-                                              )
-                                            : null,
+                                        textStyle: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          color: _muted,
+                                        ),
                                       ),
                                       const SizedBox(width: 12),
                                       Expanded(
@@ -942,95 +941,139 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   }
 
   Widget _buildEvidenceHighlight(FeedPostModel post) {
-    final String fallbackTarget = (post.targetName ?? '').trim().isEmpty
+    const Color purple = Color(0xFF6D28D9);
+    const Color purpleLight = Color(0xFF8B5CF6);
+    const Color purpleBg = Color(0xFFF5F3FF);
+    const Color purpleBorder = Color(0xFFD8B4FE);
+    const Color labelColor = Color(0xFF4B5563);
+
+    final String fallbackTarget = _cleanEvidenceTitle(post.targetName).isEmpty
         ? 'Đợt chi #${post.targetId ?? ''}'
-        : (post.targetName ?? '').trim();
+        : _cleanEvidenceTitle(post.targetName);
     final String plan = (_evidenceMeta?['plan'] ?? '').toString().trim();
     final String campaignTitle =
         (_evidenceMeta?['campaignTitle'] ?? '').toString().trim();
     final String status = (_evidenceMeta?['status'] ?? '').toString().trim();
     final String createdAt = (_evidenceMeta?['createdAt'] ?? '').toString().trim();
     final String target = plan.isEmpty ? fallbackTarget : plan;
-    return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F3FF),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFD8B4FE)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'MINH CHỨNG',
-            style: TextStyle(
-              color: Color(0xFF7C3AED),
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 0.4,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            target,
-            style: const TextStyle(
-              color: _text,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          if (_loadingEvidenceMeta)
-            const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            )
-          else ...[
-            const SizedBox(height: 8),
-            Text(
-              'Chiến dịch: ${campaignTitle.isEmpty ? "—" : campaignTitle}',
-              style: const TextStyle(
-                color: Color(0xFF4B5563),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+
+    Widget buildInfoRow(String label, String value) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            SizedBox(
+              width: 90,
+              child: Text(
+                label,
+                style: const TextStyle(
+                  color: labelColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Trạng thái: ${status.isEmpty ? "—" : _statusVi(status)}',
-              style: const TextStyle(
-                color: Color(0xFF4B5563),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Ngày tạo: ${_dateVi(createdAt)}',
-              style: const TextStyle(
-                color: Color(0xFF4B5563),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+            Expanded(
+              child: Text(
+                value.isEmpty ? '\u2014' : value,
+                style: const TextStyle(
+                  color: _text,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],
-          const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerRight,
-            child: OutlinedButton(
-              onPressed: () => openFeedPostTarget(context, _api, post),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: Color(0xFF8B5CF6)),
-                foregroundColor: const Color(0xFF7C3AED),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: <Color>[purpleBg, Color(0xFFEDE9FE)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: purpleBorder, width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          // ── Header: icon + "MINH CHỨNG" ──
+          Row(
+            children: <Widget>[
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: purple.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.verified_outlined,
+                  size: 18,
+                  color: purple,
+                ),
               ),
-              child: const Text(
-                'Xem chi tiết',
-                style: TextStyle(fontWeight: FontWeight.w800),
+              const SizedBox(width: 10),
+              const Text(
+                'MINH CHỨNG',
+                style: TextStyle(
+                  color: purple,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // ── Loading state ──
+          if (_loadingEvidenceMeta)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: purpleLight,
+                  ),
+                ),
+              ),
+            )
+          else ...<Widget>[
+            // ── Chi tiết đợt / chiến dịch / trạng thái / ngày tạo ──
+            buildInfoRow('Đợt:', target),
+            buildInfoRow('Chiến dịch:', campaignTitle),
+            buildInfoRow('Trạng thái:', status.isEmpty ? '' : _statusVi(status)),
+            buildInfoRow('Ngày tạo:', _dateVi(createdAt)),
+          ],
+          const SizedBox(height: 12),
+          // ── Nút "Xem chi tiết" ──
+          Center(
+            child: SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => openFeedPostTarget(context, _api, post),
+                icon: const Icon(Icons.open_in_new, size: 16),
+                label: const Text(
+                  'Xem chi tiết đợt chi',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: purpleLight, width: 1.5),
+                  foregroundColor: purple,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
               ),
             ),
           ),

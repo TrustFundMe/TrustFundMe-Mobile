@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../constants/api_constants.dart';
 import 'base_service.dart';
 
@@ -121,13 +123,50 @@ class AuthService extends BaseService {
     );
   }
 
-  /// Đăng xuất: xóa JWT token khỏi secure storage.
+  /// Đăng xuất: xóa JWT token và user data khỏi secure storage.
   Future<void> logout() async {
     await storage.delete(key: 'jwt_token');
+    await storage.delete(key: 'user_data');
   }
 
   /// Lấy JWT token hiện tại (nếu có).
   Future<String?> getToken() async {
     return storage.read(key: 'jwt_token');
+  }
+
+  // ─── Persistent user data ──────────────────────────────────────────────────
+
+  /// Lưu user data dưới dạng JSON string vào secure storage.
+  Future<void> saveUserData(Map<String, dynamic> userData) async {
+    await storage.write(key: 'user_data', value: jsonEncode(userData));
+  }
+
+  /// Đọc user data từ secure storage.
+  Future<Map<String, dynamic>?> readUserData() async {
+    final String? raw = await storage.read(key: 'user_data');
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return jsonDecode(raw) as Map<String, dynamic>;
+    } catch (e) {
+      debugPrint('[AuthService] readUserData parse error: $e');
+      return null;
+    }
+  }
+
+  /// Xác minh token bằng cách gọi GET /users/{userId}.
+  /// Trả về user data mới nhất nếu token hợp lệ, null nếu không.
+  Future<Map<String, dynamic>?> verifyTokenAndGetUser(int userId) async {
+    try {
+      final Response<dynamic> response =
+          await dio.get('$identityUrl/users/$userId');
+      if (response.statusCode == 200 && response.data is Map<String, dynamic>) {
+        return response.data as Map<String, dynamic>;
+      }
+    } on DioException catch (e) {
+      debugPrint('[AuthService] verifyTokenAndGetUser failed: ${e.response?.statusCode}');
+    } catch (e) {
+      debugPrint('[AuthService] verifyTokenAndGetUser error: $e');
+    }
+    return null;
   }
 }

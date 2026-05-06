@@ -79,4 +79,14 @@ class MediaService extends BaseService {
   Future<Response<dynamic>> getMediaByCampaignId(int campaignId) async {
     return dio.get('$mediaUrl/media/campaign/$campaignId');
   }
+
+  /// Lấy media theo expenditure ID (evidence images).
+  Future<Response<dynamic>> getMediaByExpenditure(int expenditureId) async {
+    return dio.get('$mediaUrl/media/expenditures/$expenditureId');
+  }
+
+  /// Lấy media theo expenditure item ID.
+  Future<Response<dynamic>> getMediaByExpenditureItem(int expenditureItemId) async {
+    return dio.get('$mediaUrl/media/expenditure-items/$expenditureItemId');
+  }
 }

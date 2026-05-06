@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../api/api_service.dart';
+import '../api/auth_service.dart';
 import '../models/user_model.dart';
 import '../models/bank_account_model.dart';
 import '../utils/error_handler.dart';
 
 class AuthProvider with ChangeNotifier {
   final ApiService _apiService = ApiService();
+  final AuthService _authService = AuthService();
   bool _isLoading = false;
   String? _error;
   bool _isLoggedIn = false;
@@ -43,6 +45,8 @@ class AuthProvider with ChangeNotifier {
         final dynamic userRaw = response.data['user'];
         if (userRaw is Map<String, dynamic>) {
           _user = UserModel.fromJson(userRaw);
+          // Persist user data để auto-login lần sau
+          await _authService.saveUserData(userRaw);
         }
         _isLoggedIn = true;
         _isLoading = false;
@@ -66,9 +70,13 @@ class AuthProvider with ChangeNotifier {
     try {
       final response = await _apiService.login(username, password);
       if (response.statusCode == 200) {
-        _user = UserModel.fromJson(response.data['user']);
+        final Map<String, dynamic> userJson =
+            response.data['user'] as Map<String, dynamic>;
+        _user = UserModel.fromJson(userJson);
         _isLoggedIn = true;
         _isLoading = false;
+        // Persist user data vào secure storage để auto-login lần sau
+        await _authService.saveUserData(userJson);
         notifyListeners();
         return true;
       }
@@ -89,9 +97,13 @@ class AuthProvider with ChangeNotifier {
     try {
       final response = await _apiService.loginWithGoogle(idToken);
       if (response.statusCode == 200) {
-        _user = UserModel.fromJson(response.data['user']);
+        final Map<String, dynamic> userJson =
+            response.data['user'] as Map<String, dynamic>;
+        _user = UserModel.fromJson(userJson);
         _isLoggedIn = true;
         _isLoading = false;
+        // Persist user data
+        await _authService.saveUserData(userJson);
         notifyListeners();
         return true;
       }
@@ -223,11 +235,62 @@ class AuthProvider with ChangeNotifier {
     return false;
   }
 
-  void logout() {
+  /// Đăng xuất: clear state + xóa token & user data khỏi secure storage.
+  Future<void> logout() async {
     _isLoggedIn = false;
     _user = null;
     _bankAccount = null;
+    await _authService.logout(); // xóa jwt_token + user_data
     notifyListeners();
+  }
+
+  // ─── Auto-login khi mở app ───────────────────────────────────────────────
+
+  /// Kiểm tra token trong secure storage, nếu có → verify với server
+  /// và tự động khôi phục session.
+  ///
+  /// Trả về `true` nếu auto-login thành công, `false` nếu cần login lại.
+  Future<bool> tryAutoLogin() async {
+    final String? savedToken = await _authService.getToken();
+    if (savedToken == null || savedToken.isEmpty) {
+      return false;
+    }
+
+    // Đọc cached user data để lấy userId
+    final Map<String, dynamic>? cachedUser = await _authService.readUserData();
+    if (cachedUser == null || cachedUser['id'] == null) {
+      // Có token nhưng không có user data → xóa token, yêu cầu login lại
+      await _authService.logout();
+      return false;
+    }
+
+    final dynamic rawId = cachedUser['id'];
+    final int userId = rawId is int
+        ? rawId
+        : (rawId is num ? rawId.toInt() : int.tryParse('$rawId') ?? 0);
+
+    if (userId == 0) {
+      await _authService.logout();
+      return false;
+    }
+
+    // Verify token bằng cách gọi API lấy user mới nhất
+    final Map<String, dynamic>? freshUser =
+        await _authService.verifyTokenAndGetUser(userId);
+
+    if (freshUser != null) {
+      // Token hợp lệ → khôi phục session
+      _user = UserModel.fromJson(freshUser);
+      _isLoggedIn = true;
+      // Cập nhật cached user data với data mới nhất
+      await _authService.saveUserData(freshUser);
+      notifyListeners();
+      return true;
+    }
+
+    // Token hết hạn hoặc không hợp lệ → clear và yêu cầu login lại
+    await _authService.logout();
+    return false;
   }
 
   /// Sau [verify-email] trên BE (luồng xác minh OTP đăng ký).

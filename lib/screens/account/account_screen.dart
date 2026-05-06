@@ -13,6 +13,7 @@ import '../my_feed_screen.dart';
 import '../my_flags_screen.dart';
 import '../notifications/notification_screen.dart';
 import '../profile_screen.dart';
+import '../../widgets/safe_network_avatar.dart';
 import 'bank_accounts_screen.dart';
 import 'change_password_screen.dart';
 import 'donation_history_screen.dart';
@@ -108,16 +109,13 @@ class AccountScreen extends StatelessWidget {
                           border: Border.all(
                               color: _primary.withOpacity(0.2), width: 3),
                         ),
-                        child: CircleAvatar(
+                        child: SafeNetworkAvatar(
+                          imageUrl: user.avatarUrl,
+                          name: user.fullName.isNotEmpty ? user.fullName : 'U',
                           radius: 44,
                           backgroundColor: Colors.white,
-                          backgroundImage: user.avatarUrl != null
-                              ? NetworkImage(user.avatarUrl!)
-                              : null,
-                          child: user.avatarUrl == null
-                              ? const Icon(Icons.person,
-                                  size: 48, color: Colors.grey)
-                              : null,
+                          fallbackIcon: const Icon(Icons.person,
+                              size: 48, color: Colors.grey),
                         ),
                       ),
                       if (auth.isLoading)
@@ -329,9 +327,10 @@ class AccountScreen extends StatelessWidget {
                               onPressed: () => Navigator.pop(ctx),
                               child: const Text('Hủy')),
                           TextButton(
-                            onPressed: () {
+                            onPressed: () async {
                               Navigator.pop(ctx);
-                              auth.logout();
+                              await auth.logout();
+                              if (!context.mounted) return;
                               Navigator.of(context).pushAndRemoveUntil(
                                 MaterialPageRoute(
                                     builder: (_) => const LoginScreen()),

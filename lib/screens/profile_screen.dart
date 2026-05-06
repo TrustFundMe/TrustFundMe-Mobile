@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../core/utils/image_cropper_helper.dart';
 import '../core/providers/auth_provider.dart';
+import '../widgets/safe_network_avatar.dart';
 import 'email_verification_screen.dart';
 import 'login_screen.dart';
 import 'my_campaigns_screen.dart';
@@ -203,15 +204,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           shape: BoxShape.circle,
                           border: Border.all(color: webPrimary.withOpacity(0.2), width: 4),
                         ),
-                        child: CircleAvatar(
+                        child: SafeNetworkAvatar(
+                          imageUrl: user.avatarUrl,
+                          name: user.fullName.isNotEmpty ? user.fullName : 'U',
                           radius: 55,
                           backgroundColor: Colors.white,
-                          backgroundImage: user.avatarUrl != null 
-                              ? NetworkImage(user.avatarUrl!) 
-                              : null,
-                          child: user.avatarUrl == null
-                              ? const Icon(Icons.person, size: 60, color: Colors.grey)
-                              : null,
+                          fallbackIcon: const Icon(Icons.person, size: 60, color: Colors.grey),
                         ),
                       ),
                       if (authProvider.isLoading)

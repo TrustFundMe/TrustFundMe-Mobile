@@ -8,6 +8,7 @@ import '../../core/models/feed_post_model.dart';
 import '../../core/models/feed_post_media_model.dart';
 import '../../core/providers/auth_provider.dart';
 import '../../widgets/feed/create_feed_post_sheet.dart';
+import '../../widgets/safe_network_avatar.dart';
 import 'post_detail_screen.dart';
 
 /// Community Feed Screen — hiển thị bài viết từ tất cả campaigns.
@@ -24,6 +25,8 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   static const Color _text = Color(0xFF111827);
   static const Color _muted = Color(0xFF6B7280);
   static const Color _primary = Color(0xFFF84D43);
+  static const Color _purple = Color(0xFF7C3AED);
+  static const Color _purpleLight = Color(0xFFF5F3FF);
 
   // ─── Services ──────────────────────────────────────────────────────────────
   final FeedService _feedSvc = FeedService();
@@ -213,10 +216,49 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     cleaned = cleaned.replaceFirst(
-      RegExp(r'^evidence\S*\s*[-:|]?\s*', caseSensitive: false),
+      RegExp(r'^evidence[a-zA-Z0-9_]*\s*[-:|]?\s*', caseSensitive: false),
       '',
     );
     return cleaned;
+  }
+
+  /// Sanitize authorName: loại bỏ dạng "evidence33", "evidenceABC" do backend gửi nhầm.
+  static String _displayAuthorName(String raw) {
+    final String name = raw.trim();
+    if (name.isEmpty) return 'Thành viên cộng đồng';
+    if (RegExp(r'^evidence[a-zA-Z0-9_]*$', caseSensitive: false).hasMatch(name)) {
+      return 'Thành viên cộng đồng';
+    }
+    return name;
+  }
+
+  /// Kiểm tra xem post có phải bài minh chứng không.
+  static bool _isEvidence(String? targetName) {
+    return targetName != null &&
+        targetName.trim().toLowerCase().startsWith('evidence');
+  }
+
+  /// Extract planName từ targetName pipe format: "evidence|Đợt 1: Mua sắm..."
+  static String? _extractPlanName(String? raw) {
+    final String t = (raw ?? '').trim();
+    if (t.contains('|')) {
+      final String planName = t.split('|').sublist(1).join('|').trim();
+      if (planName.isNotEmpty) return planName;
+    }
+    return null;
+  }
+
+  /// Strip prefix evidence khỏi targetName/title.
+  /// Nếu targetName bắt đầu bằng "evidence" → trả "Minh chứng cho {planName}" hoặc "Minh chứng".
+  static String _cleanEvidence(String? raw) {
+    final String t = (raw ?? '').trim();
+    if (t.isEmpty) return '';
+    if (RegExp(r'^evidence', caseSensitive: false).hasMatch(t)) {
+      final String? planName = _extractPlanName(t);
+      if (planName != null) return 'Minh chứng cho $planName';
+      return 'Minh chứng';
+    }
+    return t;
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────
@@ -313,13 +355,18 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
         _mediaMap[post.id] ?? <FeedPostMediaItem>[];
     final String content = _stripHtml(post.content);
     final String time = _timeAgo(post.updatedAt ?? post.createdAt);
+    final bool isEvidence = _isEvidence(post.targetName);
 
     return Card(
       margin: EdgeInsets.zero,
-      elevation: 0,
+      elevation: isEvidence ? 2 : 0,
+      shadowColor: isEvidence ? _purple.withOpacity(0.25) : Colors.transparent,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: Color(0xFFE5E7EB), width: 1),
+        side: BorderSide(
+          color: isEvidence ? _purple.withOpacity(0.35) : const Color(0xFFE5E7EB),
+          width: isEvidence ? 1.5 : 1,
+        ),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -331,136 +378,173 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
           );
           if (mounted) _loadFeed(refresh: true);
         },
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              // ─── Author row ──────────────────────────────────────
-              Row(
+        child: Stack(
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  CircleAvatar(
-                    radius: 18,
-                    backgroundColor: const Color(0xFFE5E7EB),
-                    backgroundImage: post.authorAvatar != null &&
-                            post.authorAvatar!.isNotEmpty
-                        ? NetworkImage(post.authorAvatar!)
-                        : null,
-                    child: post.authorAvatar == null ||
-                            post.authorAvatar!.isEmpty
-                        ? Text(
-                            post.authorName.isNotEmpty
-                                ? post.authorName[0].toUpperCase()
-                                : '?',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF6B7280),
-                            ),
-                          )
-                        : null,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          post.authorName,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: _text,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                  // ─── Author row ──────────────────────────────────────
+                  Row(
+                    children: <Widget>[
+                      SafeNetworkAvatar(
+                        imageUrl: post.authorAvatar,
+                        name: _displayAuthorName(post.authorName).isNotEmpty
+                            ? _displayAuthorName(post.authorName)
+                            : 'T',
+                        radius: 18,
+                        backgroundColor: const Color(0xFFE5E7EB),
+                        textStyle: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF6B7280),
                         ),
-                        Row(
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            if (post.targetName != null &&
-                                post.targetName!.isNotEmpty) ...<Widget>[
-                              Flexible(
-                                child: Text(
-                                  post.targetName!,
+                            Text(
+                              _displayAuthorName(post.authorName),
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: _text,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Row(
+                              children: <Widget>[
+                                if (_cleanEvidence(post.targetName).isNotEmpty) ...<Widget>[
+                                  Flexible(
+                                    child: Text(
+                                      _cleanEvidence(post.targetName),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isEvidence
+                                            ? _purple
+                                            : const Color(0xFF2563EB),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const Text(' · ',
+                                      style: TextStyle(
+                                          fontSize: 11, color: _muted)),
+                                ],
+                                Text(
+                                  time,
                                   style: const TextStyle(
                                     fontSize: 11,
-                                    color: Color(0xFF2563EB),
-                                    fontWeight: FontWeight.w500,
+                                    color: _muted,
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              ),
-                              const Text(' · ',
-                                  style: TextStyle(
-                                      fontSize: 11, color: _muted)),
-                            ],
-                            Text(
-                              time,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: _muted,
-                              ),
+                              ],
                             ),
                           ],
                         ),
-                      ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // ─── Content ─────────────────────────────────────────
+                  if (content.isNotEmpty)
+                    _ExpandableText(
+                      text: content,
+                      maxLines: 4,
+                    ),
+
+                  // ─── Media ───────────────────────────────────────────
+                  if (media.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 10),
+                    _buildMediaCarousel(media),
+                  ],
+
+                  const SizedBox(height: 10),
+
+                  // ─── Actions ─────────────────────────────────────────
+                  Row(
+                    children: <Widget>[
+                      _ActionButton(
+                        icon: post.isLiked
+                            ? Icons.favorite
+                            : Icons.favorite_border,
+                        label: '${post.likeCount}',
+                        color: post.isLiked ? _primary : _muted,
+                        onTap: () => _toggleLike(index),
+                      ),
+                      const SizedBox(width: 20),
+                      _ActionButton(
+                        icon: Icons.chat_bubble_outline,
+                        label: '${post.commentCount}',
+                        color: _muted,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) =>
+                                  PostDetailScreen(postId: post.id),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 20),
+                      _ActionButton(
+                        icon: Icons.visibility_outlined,
+                        label: '${post.viewCount}',
+                        color: _muted,
+                        onTap: null,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // ─── Evidence badge ribbon ────────────────────────────────
+            if (isEvidence)
+              Positioned(
+                top: 0,
+                right: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: <Color>[Color(0xFF7C3AED), Color(0xFF9333EA)],
+                    ),
+                    borderRadius: BorderRadius.only(
+                      bottomLeft: Radius.circular(10),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 10),
-
-              // ─── Content ─────────────────────────────────────────
-              if (content.isNotEmpty)
-                _ExpandableText(
-                  text: content,
-                  maxLines: 4,
-                ),
-
-              // ─── Media ───────────────────────────────────────────
-              if (media.isNotEmpty) ...<Widget>[
-                const SizedBox(height: 10),
-                _buildMediaCarousel(media),
-              ],
-
-              const SizedBox(height: 10),
-
-              // ─── Actions ─────────────────────────────────────────
-              Row(
-                children: <Widget>[
-                  _ActionButton(
-                    icon: post.isLiked
-                        ? Icons.favorite
-                        : Icons.favorite_border,
-                    label: '${post.likeCount}',
-                    color: post.isLiked ? _primary : _muted,
-                    onTap: () => _toggleLike(index),
-                  ),
-                  const SizedBox(width: 20),
-                  _ActionButton(
-                    icon: Icons.chat_bubble_outline,
-                    label: '${post.commentCount}',
-                    color: _muted,
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) =>
-                              PostDetailScreen(postId: post.id),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(
+                        Icons.verified,
+                        size: 12,
+                        color: Colors.white,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'MINH CHỨNG',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
                         ),
-                      );
-                    },
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 20),
-                  _ActionButton(
-                    icon: Icons.visibility_outlined,
-                    label: '${post.viewCount}',
-                    color: _muted,
-                    onTap: null,
-                  ),
-                ],
+                ),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );

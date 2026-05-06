@@ -17,7 +17,9 @@ import '../core/providers/auth_provider.dart';
 import 'donation/vietqr_screen.dart';
 import 'feed_post_detail_screen.dart';
 import 'campaign_posts_screen.dart';
+import 'expenditure_detail_screen.dart';
 import '../widgets/flags/flag_reason_sheet.dart';
+import '../widgets/safe_network_avatar.dart';
 import '../core/utils/flag_error_resolver.dart';
 import '../core/utils/flag_duplicate_guard.dart';
 
@@ -132,6 +134,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
   bool _flagged = false;
 
   bool _loading = true;
+  bool _loadingCreator = true;
   bool _loadingPosts = false;
   String? _errorMessage;
   bool _refreshCampaignsList = false;
@@ -163,7 +166,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
   }
 
   Future<void> _load() async {
-    if (mounted) setState(() { _loading = true; _errorMessage = null; });
+    if (mounted) setState(() { _loading = true; _loadingCreator = true; _errorMessage = null; });
 
     try {
       // Phase 1: Critical data in parallel — each non-critical call has catchError
@@ -273,9 +276,50 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         _galleryImages = [_campaign.coverImageUrl!];
       }
 
-      if (mounted) setState(() { _loading = false; });
+      // ── Fetch creator info (critical — must complete before UI renders) ──
+      final ownerId = _campaign.fundOwnerId;
+      if (ownerId != null && mounted) {
+        try {
+          final ownerResults = await Future.wait<dynamic>([
+            _userSvc.getUserById(ownerId).then<dynamic>((r) => r).catchError((_) => null),
+            _trustScoreSvc.getUserScore(ownerId).then<dynamic>((r) => r).catchError((_) => null),
+          ]);
 
-      // Phase 2: Non-blocking — owner details, follow info
+          if (mounted) {
+            // Owner info
+            final dynamic o0 = ownerResults[0];
+            final dynamic uRaw = o0 is Response ? o0.data : null;
+            if (uRaw is Map<String, dynamic>) {
+              if (uRaw.containsKey('fullName')) {
+                _creatorName = (uRaw['fullName'] ?? '') as String;
+                _creatorAvatar = (uRaw['avatarUrl'] ?? '') as String;
+              } else {
+                final data = uRaw['data'];
+                if (data is Map<String, dynamic>) {
+                  _creatorName = (data['fullName'] ?? '') as String;
+                  _creatorAvatar = (data['avatarUrl'] ?? '') as String;
+                }
+              }
+            }
+
+            // Trust score
+            final dynamic o1 = ownerResults[1];
+            final dynamic tsRaw = o1 is Response ? o1.data : null;
+            if (tsRaw is Map<String, dynamic>) {
+              final totalScore = tsRaw['totalScore'];
+              if (totalScore is num && totalScore > 0) {
+                _creatorTrustScore = totalScore.toInt();
+              }
+            }
+          }
+        } catch (_) {
+          // Creator info fetch failed — non-fatal, fallback name will show
+        }
+      }
+
+      if (mounted) setState(() { _loading = false; _loadingCreator = false; });
+
+      // Phase 2: Non-blocking — follow/flag info
       await _loadSecondaryData();
     } catch (e) {
       if (!mounted) return;
@@ -284,7 +328,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       // và chỉ thông báo toast thay vì chặn toàn bộ màn hình.
       debugPrint('[CampaignDetail] _load lỗi id=${_campaign.id}: $e');
       if (_campaign.id > 0) {
-        setState(() => _loading = false);
+        setState(() { _loading = false; _loadingCreator = false; });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Không thể làm mới dữ liệu. Kéo xuống để thử lại.'),
@@ -298,6 +342,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       } else {
         setState(() {
           _loading = false;
+          _loadingCreator = false;
           _errorMessage = 'Không tải được chi tiết. Kéo xuống để thử lại.';
         });
       }
@@ -306,40 +351,18 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
 
   Future<void> _loadSecondaryData() async {
     try {
-      final ownerId = _campaign.fundOwnerId;
-      if (ownerId == null) return;
-
+      // Owner info + trust score are already fetched in Phase 1 (_load).
+      // Phase 2 only fetches follow/flag status — non-critical UI data.
       final results = await Future.wait<dynamic>([
-        _userSvc.getUserById(ownerId).then<dynamic>((r) => r).catchError((_) => null),
         _api.isFollowingCampaign(_campaign.id).then<dynamic>((r) => r).catchError((_) => null),
         _api.getMyFlags(page: 0, size: 100).then<dynamic>((r) => r).catchError((_) => null),
-        _trustScoreSvc.getUserScore(ownerId).then<dynamic>((r) => r).catchError((_) => null),
       ]);
 
       if (!mounted) return;
 
-      // Owner info — backend returns user object directly (e.g. {id, fullName, avatarUrl, ...}).
-      // Some responses may wrap it in {data: {...}}, so we check both formats.
-      final dynamic s0 = results[0];
-      final dynamic uRaw = s0 is Response ? s0.data : null;
-      if (uRaw is Map<String, dynamic>) {
-        // Try direct fields first (backend returns user at top level)
-        if (uRaw.containsKey('fullName')) {
-          _creatorName = (uRaw['fullName'] ?? '') as String;
-          _creatorAvatar = (uRaw['avatarUrl'] ?? '') as String;
-        } else {
-          // Fallback: response might be wrapped in {data: {...}}
-          final data = uRaw['data'];
-          if (data is Map<String, dynamic>) {
-            _creatorName = (data['fullName'] ?? '') as String;
-            _creatorAvatar = (data['avatarUrl'] ?? '') as String;
-          }
-        }
-      }
-
       // Follow status
-      final dynamic s1 = results[1];
-      final dynamic fRaw = s1 is Response ? s1.data : null;
+      final dynamic s0 = results[0];
+      final dynamic fRaw = s0 is Response ? s0.data : null;
       if (fRaw is bool) {
         _followed = fRaw;
       } else if (fRaw is Map && fRaw['following'] != null) {
@@ -347,8 +370,8 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       }
 
       // Flag check
-      final dynamic s2 = results[2];
-      final dynamic flagRaw = s2 is Response ? s2.data : null;
+      final dynamic s1 = results[1];
+      final dynamic flagRaw = s1 is Response ? s1.data : null;
       if (flagRaw is Map<String, dynamic>) {
         final content = flagRaw['content'];
         if (content is List) {
@@ -359,16 +382,6 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         // Some backends return flags as a direct list
         _flagged = flagRaw.any((f) =>
             f is Map<String, dynamic> && f['campaignId'] == _campaign.id);
-      }
-
-      // Trust score
-      final dynamic s3 = results[3];
-      final dynamic tsRaw = s3 is Response ? s3.data : null;
-      if (tsRaw is Map<String, dynamic>) {
-        final totalScore = tsRaw['totalScore'];
-        if (totalScore is num && totalScore > 0) {
-          _creatorTrustScore = totalScore.toInt();
-        }
       }
 
       if (mounted) setState(() {});
@@ -592,6 +605,18 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       return;
     }
 
+    final int raised = _progress?.raisedAmount ?? 0;
+    final int goal = _progress?.goalAmount ?? 0;
+    final int remaining = (goal - raised).clamp(0, goal);
+    if (goal > 0 && _donateAmount > remaining) {
+      final bool continueDonate = await _showDonationExceedWarning(
+        goalAmount: goal,
+        raisedAmount: raised,
+        donationAmount: _donateAmount,
+      );
+      if (!continueDonate) return;
+    }
+
     setState(() => _donateLoading = true);
 
     try {
@@ -647,6 +672,123 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     } finally {
       if (mounted) setState(() => _donateLoading = false);
     }
+  }
+
+  Future<bool> _showDonationExceedWarning({
+    required int goalAmount,
+    required int raisedAmount,
+    required int donationAmount,
+  }) async {
+    final int remaining = (goalAmount - raisedAmount).clamp(0, goalAmount);
+    final int excess = (donationAmount - remaining).clamp(0, donationAmount);
+
+    final bool? result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 6),
+          contentPadding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+          actionsPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          title: const Text(
+            'Số tiền vượt quá mục tiêu đợt này',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              color: _textDark,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Đợt này chỉ cần thêm ${_fmtMoney(remaining)} VNĐ nữa là hoàn thành. '
+                'Phần dư sẽ được ưu tiên cho đợt tiếp theo của cùng chiến dịch.',
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: _textDark,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0x1A0F172A)),
+                ),
+                child: Column(
+                  children: [
+                    _warnRow('Bạn muốn quyên góp', '${_fmtMoney(donationAmount)} VNĐ', _textDark),
+                    const Divider(height: 14),
+                    _warnRow('Vào đợt hiện tại', '${_fmtMoney(remaining)} VNĐ', _green),
+                    const SizedBox(height: 6),
+                    _warnRow('Giữ cho đợt tiếp theo', '+${_fmtMoney(excess)} VNĐ', _brand),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _brand,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                child: const Text(
+                  'Tiếp tục quyên góp',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text(
+                  'Điều chỉnh số tiền',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    return result == true;
+  }
+
+  Widget _warnRow(String label, String value, Color valueColor) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: _textDark,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+            color: valueColor,
+          ),
+        ),
+      ],
+    );
   }
 
   /// Unwrap response data if it is wrapped in { data: ... } or { code, message, data }.
@@ -861,8 +1003,8 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
 
                         const SizedBox(height: 14),
 
-                        // Milestone Timeline
-                        if (_plans.isNotEmpty) _buildMilestoneTimeline(raised),
+                        // Milestone Timeline / Hồ sơ chi tiêu
+                        _buildMilestoneTimeline(raised),
 
                         const SizedBox(height: 14),
 
@@ -904,20 +1046,61 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
 
   // ─── Creator row ───
   Widget _buildCreatorRow() {
+    // While creator info is still loading, show a shimmer-like placeholder
+    // instead of the raw "Người tạo #30002" fallback.
+    final bool stillLoading = _loadingCreator && _creatorName.isEmpty;
+
+    if (stillLoading) {
+      return Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: const BoxDecoration(
+              color: Color(0xFFE2E8F0),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 60,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  width: 140,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE2E8F0),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
     final name = _creatorName.isNotEmpty
         ? _creatorName
         : 'Người tạo #${_campaign.fundOwnerId ?? ''}';
     return Row(
       children: [
-        CircleAvatar(
+        SafeNetworkAvatar(
+          imageUrl: _creatorAvatar.isNotEmpty ? _creatorAvatar : null,
+          name: _creatorName.isNotEmpty ? _creatorName : 'U',
           radius: 22,
           backgroundColor: const Color(0xFFE2E8F0),
-          backgroundImage: _creatorAvatar.isNotEmpty
-              ? NetworkImage(_creatorAvatar)
-              : null,
-          child: _creatorAvatar.isEmpty
-              ? const Icon(Icons.person, color: _muted, size: 22)
-              : null,
+          fallbackIcon: const Icon(Icons.person, color: _muted, size: 22),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -1595,16 +1778,12 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         ),
         child: Row(
           children: [
-            CircleAvatar(
+            SafeNetworkAvatar(
+              imageUrl: d.donorAvatar,
+              name: d.donorName.isNotEmpty ? d.donorName : 'D',
               radius: 18,
               backgroundColor: const Color(0xFFE2E8F0),
-              backgroundImage: d.donorAvatar != null &&
-                      d.donorAvatar!.isNotEmpty
-                  ? NetworkImage(d.donorAvatar!)
-                  : null,
-              child: d.donorAvatar == null || d.donorAvatar!.isEmpty
-                  ? const Icon(Icons.person, size: 18, color: _muted)
-                  : null,
+              fallbackIcon: const Icon(Icons.person, size: 18, color: _muted),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -1681,14 +1860,76 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          ..._plans.asMap().entries.map((entry) {
-            return _MilestoneItem(
-              plan: entry.value,
-              index: entry.key,
-              isLast: entry.key == _plans.length - 1,
-            );
-          }),
+          if (_plans.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0x1A0F172A)),
+              ),
+              child: const Text(
+                'Chưa có hồ sơ chi tiêu cho chiến dịch này.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _muted,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            )
+          else
+            ..._plans.asMap().entries.map((entry) {
+              return _MilestoneItem(
+                plan: entry.value,
+                index: entry.key,
+                isLast: entry.key == _plans.length - 1,
+                onOpenDetail: () => _openExpenditureDetail(entry.value),
+              );
+            }),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openExpenditureDetail(ExpenditurePlanModel plan) async {
+    final payload = <String, dynamic>{
+      'id': plan.id,
+      'campaignId': _campaign.id,
+      'plan': plan.title,
+      'status': plan.status,
+      'startDate': plan.startDate,
+      'endDate': plan.endDate,
+      'totalExpectedAmount': plan.amount,
+      'categories': plan.categories
+          .map((cat) => <String, dynamic>{
+                'id': cat.id,
+                'name': cat.name,
+                'description': cat.description,
+                'expectedAmount': cat.expectedAmount,
+                'actualAmount': cat.actualAmount,
+                'items': cat.items
+                    .map((item) => <String, dynamic>{
+                          'id': item.id,
+                          'name': item.name,
+                          'category': item.name,
+                          'quantity': item.expectedQuantity,
+                          'expectedQuantity': item.expectedQuantity,
+                          'expectedPrice': item.expectedPrice,
+                          'actualQuantity': item.actualQuantity,
+                          'price': item.price,
+                          'note': item.note,
+                        })
+                    .toList(),
+              })
+          .toList(),
+    };
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ExpenditureDetailScreen(
+          expenditure: payload,
+          campaignType: _campaign.type ?? 'ITEMIZED',
+        ),
       ),
     );
   }
@@ -1784,16 +2025,12 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                       children: [
                         Row(
                           children: [
-                            CircleAvatar(
+                            SafeNetworkAvatar(
+                              imageUrl: p.authorAvatar,
+                              name: p.authorName.isNotEmpty ? p.authorName : 'P',
                               radius: 16,
-                              backgroundImage: (p.authorAvatar ?? '')
-                                      .isNotEmpty
-                                  ? NetworkImage(p.authorAvatar ?? '')
-                                  : null,
-                              child: (p.authorAvatar ?? '').isEmpty
-                                  ? const Icon(Icons.person,
-                                      size: 16, color: _muted)
-                                  : null,
+                              fallbackIcon: const Icon(Icons.person,
+                                  size: 16, color: _muted),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
@@ -1870,11 +2107,13 @@ class _MilestoneItem extends StatefulWidget {
   const _MilestoneItem({
     required this.plan,
     required this.index,
+    required this.onOpenDetail,
     this.isLast = false,
   });
 
   final ExpenditurePlanModel plan;
   final int index;
+  final VoidCallback onOpenDetail;
   final bool isLast;
 
   @override
@@ -1894,15 +2133,28 @@ class _MilestoneItemState extends State<_MilestoneItem> {
 
   @override
   Widget build(BuildContext context) {
+    final status = (widget.plan.status ?? '').toUpperCase();
     final isCompleted = _state == 'completed';
+    final isApproved = status == 'APPROVED';
+    final isPending = ['PENDING', 'PENDING_REVIEW', 'ALLOWED_EDIT'].contains(status);
+    final isRejected = status == 'REJECTED';
     final isActive = _state == 'active';
-    final isRejected = (widget.plan.status ?? '').toUpperCase() == 'REJECTED';
-    final accent = isRejected ? _red : isCompleted ? _green : isActive ? _brand : _muted;
+    final accent = isRejected
+        ? _red
+        : (isCompleted || isApproved)
+            ? _green
+            : isPending
+                ? const Color(0xFFF59E0B)
+                : isActive
+                    ? _brand
+                    : _muted;
     final bg = isRejected
         ? const Color(0xFFFEF2F2)
-        : isCompleted
+        : (isCompleted || isApproved)
             ? const Color(0xFFECFDF5)
-            : isActive
+            : isPending
+                ? const Color(0xFFFFFBEB)
+                : isActive
                 ? const Color(0xFFFFF7ED)
                 : const Color(0xFFF8FAFC);
 
@@ -1978,7 +2230,7 @@ class _MilestoneItemState extends State<_MilestoneItem> {
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w800,
-                                    color: isActive ? _brand : _dark,
+                                    color: accent,
                                   ),
                                 ),
                                 const SizedBox(height: 2),
@@ -2029,7 +2281,7 @@ class _MilestoneItemState extends State<_MilestoneItem> {
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
-                              color: isActive ? _brand : _muted,
+                              color: accent,
                             ),
                           ),
                           const SizedBox(width: 4),
@@ -2038,7 +2290,23 @@ class _MilestoneItemState extends State<_MilestoneItem> {
                                 ? Icons.keyboard_arrow_up
                                 : Icons.keyboard_arrow_down,
                             size: 14,
-                            color: isActive ? _brand : _muted,
+                            color: accent,
+                          ),
+                          const Spacer(),
+                          TextButton(
+                            onPressed: widget.onOpenDetail,
+                            style: TextButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              foregroundColor: _brand,
+                            ),
+                            child: const Text(
+                              'Mở chi tiết',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ],
                       ),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_service.dart';
 import '../../core/models/feed_post_media_model.dart';
 import '../../core/models/feed_post_model.dart';
+import '../safe_network_avatar.dart';
 import 'feed_post_attachments.dart';
 import 'feed_post_target_nav.dart';
 
@@ -54,14 +55,28 @@ class CommunityFeedPostCard extends StatelessWidget {
   static const Color _text = Color(0xFF111827);
   static const Color _muted = Color(0xFF6B7280);
 
+  /// Sanitize authorName: loại bỏ prefix "evidence..." do backend gửi nhầm.
   String _displayAuthorName(String raw) {
     final String name = raw.trim();
     if (name.isEmpty) return 'Thành viên cộng đồng';
-    // Backend đôi khi trả nhầm authorName dạng evidenceXX cho bài minh chứng.
-    if (RegExp(r'^evidence\d*$', caseSensitive: false).hasMatch(name)) {
+    // Catch mọi dạng: evidence, evidence33, evidenceABC, ...
+    if (RegExp(r'^evidence[a-zA-Z0-9_]*$', caseSensitive: false).hasMatch(name)) {
       return 'Thành viên cộng đồng';
     }
     return name;
+  }
+
+  /// Strip prefix evidence khỏi title hiển thị trên card.
+  static String _cleanTitle(String? raw) {
+    final String t = (raw ?? '').trim();
+    if (t.isEmpty) return '';
+    return t
+        .replaceFirst(
+          RegExp(r'^evidence[a-zA-Z0-9_]*\s*[-:|]?\s*', caseSensitive: false),
+          '',
+        )
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 
   @override
@@ -81,25 +96,15 @@ class CommunityFeedPostCard extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                CircleAvatar(
+                SafeNetworkAvatar(
+                  imageUrl: post.authorAvatar,
+                  name: authorName.isNotEmpty ? authorName : 'T',
                   radius: 19,
                   backgroundColor: const Color(0xFFF3F4F6),
-                  backgroundImage: post.authorAvatar != null &&
-                          post.authorAvatar!.isNotEmpty
-                      ? NetworkImage(post.authorAvatar!)
-                      : null,
-                  child: post.authorAvatar == null ||
-                          post.authorAvatar!.isEmpty
-                      ? Text(
-                          authorName.isNotEmpty
-                              ? authorName[0].toUpperCase()
-                              : '?',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            color: _muted,
-                          ),
-                        )
-                      : null,
+                  textStyle: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: _muted,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -293,11 +298,11 @@ class CommunityFeedPostCard extends StatelessWidget {
               ],
             ),
           ),
-          if ((post.title ?? '').trim().isNotEmpty)
+          if (_cleanTitle(post.title).isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 6),
               child: Text(
-                post.title!.trim(),
+                _cleanTitle(post.title),
                 style: const TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 16,

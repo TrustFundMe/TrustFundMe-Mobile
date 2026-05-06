@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_service.dart';
 import '../../core/models/feed_comment_model.dart';
+import '../safe_network_avatar.dart';
 
 String feedCommentTimeLabel(String raw) {
   if (raw.isEmpty) return '';
@@ -855,26 +856,16 @@ class _CommentThread extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-              CircleAvatar(
+              SafeNetworkAvatar(
+                imageUrl: comment.authorAvatar,
+                name: comment.authorName.isNotEmpty ? comment.authorName : '?',
                 radius: 16,
                 backgroundColor: const Color(0xFFF3F4F6),
-                backgroundImage: comment.authorAvatar != null &&
-                        comment.authorAvatar!.isNotEmpty
-                    ? NetworkImage(comment.authorAvatar!)
-                    : null,
-                child: comment.authorAvatar == null ||
-                        comment.authorAvatar!.isEmpty
-                    ? Text(
-                        comment.authorName.isNotEmpty
-                            ? comment.authorName[0].toUpperCase()
-                            : '?',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: _muted,
-                        ),
-                      )
-                    : null,
+                textStyle: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: _muted,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(

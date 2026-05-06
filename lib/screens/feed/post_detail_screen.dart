@@ -1,13 +1,18 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/api/campaign_service.dart';
+import '../../core/api/expenditure_service.dart';
 import '../../core/api/feed_service.dart';
 import '../../core/api/media_service.dart';
 import '../../core/models/feed_post_model.dart';
 import '../../core/models/feed_comment_model.dart';
 import '../../core/models/feed_post_media_model.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../widgets/safe_network_avatar.dart';
+import '../expenditure_detail_screen.dart';
 
 /// Post Detail Screen — chi tiết 1 post + comments + add comment.
 class PostDetailScreen extends StatefulWidget {
@@ -24,10 +29,31 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   static const Color _text = Color(0xFF111827);
   static const Color _muted = Color(0xFF6B7280);
   static const Color _primary = Color(0xFFF84D43);
+  static const Color _purple = Color(0xFF7C3AED);
+  static const Color _purpleLight = Color(0xFFF5F3FF);
+
+  // ─── Status mapping (giống web) ────────────────────────────────────────────
+  static const Map<String, String> _statusLabels = <String, String>{
+    'PENDING': 'Chờ duyệt',
+    'APPROVED': 'Đã duyệt',
+    'REJECTED': 'Bị từ chối',
+    'DISBURSED': 'Đã giải ngân',
+    'COMPLETED': 'Hoàn thành',
+  };
+
+  static const Map<String, Color> _statusColors = <String, Color>{
+    'PENDING': Colors.amber,
+    'APPROVED': Colors.green,
+    'REJECTED': Colors.red,
+    'DISBURSED': Colors.blue,
+    'COMPLETED': Colors.teal,
+  };
 
   // ─── Services ──────────────────────────────────────────────────────────────
   final FeedService _feedSvc = FeedService();
   final MediaService _mediaSvc = MediaService();
+  final ExpenditureService _expenditureSvc = ExpenditureService();
+  final CampaignService _campaignSvc = CampaignService();
 
   // ─── State ─────────────────────────────────────────────────────────────────
   FeedPostModel? _post;
@@ -37,8 +63,14 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   bool _loadingComments = true;
   bool _sendingComment = false;
 
+  // Evidence Info Card data
+  Map<String, dynamic>? _expenditureData;
+  String? _campaignTitle;
+  bool _loadingEvidence = false;
+
   final TextEditingController _commentCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
+  static final Set<int> _seenInSession = <int>{};
 
   @override
   void initState() {
@@ -46,6 +78,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     _loadPost();
     _loadComments();
     _loadMedia();
+    _markSeenOnce();
   }
 
   @override
@@ -53,6 +86,22 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     _commentCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
+  }
+
+  // ─── Evidence helpers ──────────────────────────────────────────────────────
+  static bool _isEvidence(FeedPostModel post) {
+    final String tt = (post.targetType ?? '').trim().toUpperCase();
+    final String tn = (post.targetName ?? '').trim().toLowerCase();
+    return tt == 'EXPENDITURE' && tn.startsWith('evidence');
+  }
+
+  static String? _extractPlanName(String? raw) {
+    final String t = (raw ?? '').trim();
+    if (t.contains('|')) {
+      final String planName = t.split('|').sublist(1).join('|').trim();
+      if (planName.isNotEmpty) return planName;
+    }
+    return null;
   }
 
   // ─── Data ──────────────────────────────────────────────────────────────────
@@ -66,10 +115,70 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           _post = FeedPostModel.fromJson(res.data as Map<String, dynamic>);
           _loadingPost = false;
         });
+        // Fetch evidence data after post loaded
+        if (_post != null && _isEvidence(_post!)) {
+          _loadEvidenceData();
+        }
       }
     } catch (_) {
       if (mounted) setState(() => _loadingPost = false);
     }
+  }
+
+  Future<void> _loadEvidenceData() async {
+    final FeedPostModel post = _post!;
+    final int? targetId = post.targetId;
+    if (targetId == null) return;
+
+    setState(() => _loadingEvidence = true);
+
+    try {
+      // Fetch expenditure
+      final Response<dynamic> expRes =
+          await _expenditureSvc.getExpenditureById(targetId);
+      final dynamic expData = expRes.data;
+      if (expData is! Map<String, dynamic>) {
+        if (mounted) setState(() => _loadingEvidence = false);
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _expenditureData = Map<String, dynamic>.from(expData);
+      });
+
+      // Fetch campaign title
+      final int? campaignId = _parseInt(expData['campaignId']) ??
+          _parseInt((expData['campaign'] as Map?)?['id']);
+      if (campaignId != null) {
+        try {
+          final Response<dynamic> cRes =
+              await _campaignSvc.getCampaign(campaignId);
+          if (cRes.data is Map<String, dynamic>) {
+            final Map<String, dynamic> cData =
+                cRes.data as Map<String, dynamic>;
+            if (mounted) {
+              setState(() {
+                _campaignTitle = (cData['title'] as String?) ?? '';
+                // Store campaignId in expenditure data for navigation
+                _expenditureData!['campaignId'] = campaignId;
+              });
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (_) {
+      // Silently fail evidence loading
+    } finally {
+      if (mounted) setState(() => _loadingEvidence = false);
+    }
+  }
+
+  static int? _parseInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse(v.toString());
   }
 
   Future<void> _loadComments() async {
@@ -230,6 +339,24 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
+  Future<void> _markSeenOnce() async {
+    if (_seenInSession.contains(widget.postId)) return;
+    try {
+      final Response<dynamic> res = await _feedSvc.markUserPostSeen(widget.postId);
+      if (res.statusCode == 200 || res.statusCode == 201 || res.statusCode == 204) {
+        _seenInSession.add(widget.postId);
+        if (!mounted) return;
+        setState(() {
+          if (_post != null) {
+            _post = _post!.copyWithViewCount(_post!.viewCount + 1);
+          }
+        });
+      }
+    } catch (_) {
+      // Không chặn UX nếu mark seen lỗi.
+    }
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────────────
   static String _timeAgo(String raw) {
     if (raw.isEmpty) return '';
@@ -248,6 +375,28 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         .replaceAll(RegExp(r'<[^>]*>'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+  }
+
+  /// Nếu targetName bắt đầu bằng "evidence" → hiện "Minh chứng" thay vì số raw.
+  static String _displayTargetName(String raw) {
+    final String t = raw.trim();
+    if (t.isEmpty) return '';
+    if (RegExp(r'^evidence', caseSensitive: false).hasMatch(t)) {
+      // Try to extract plan name from pipe format
+      if (t.contains('|')) {
+        final String planName = t.split('|').sublist(1).join('|').trim();
+        if (planName.isNotEmpty) return 'Minh chứng cho $planName';
+      }
+      return 'Minh chứng';
+    }
+    return t;
+  }
+
+  static String _formatDate(String? raw) {
+    if (raw == null || raw.isEmpty) return '—';
+    final DateTime? d = DateTime.tryParse(raw.replaceFirst(' ', 'T'));
+    if (d == null) return raw;
+    return DateFormat('dd/MM/yyyy').format(d);
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────
@@ -286,6 +435,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                               const EdgeInsets.fromLTRB(0, 0, 0, 16),
                           children: <Widget>[
                             _buildPostContent(),
+                            // ─── Evidence Info Card ─────────────────
+                            if (_post != null && _isEvidence(_post!))
+                              _buildEvidenceInfoCard(),
                             const Divider(height: 1),
                             _buildCommentsSection(),
                           ],
@@ -329,6 +481,260 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     );
   }
 
+  // ─── Evidence Info Card ────────────────────────────────────────────────────
+  Widget _buildEvidenceInfoCard() {
+    final FeedPostModel post = _post!;
+    final String? planNameFromTarget = _extractPlanName(post.targetName);
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _purpleLight,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: _purple.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: _loadingEvidence && _expenditureData == null
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: _purple,
+                  ),
+                ),
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                // Badge "Minh chứng"
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _purple,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(
+                        Icons.verified,
+                        size: 14,
+                        color: Colors.white,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'Minh chứng',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Tên đợt chi
+                Text(
+                  _expenditureData?['plan'] as String? ??
+                      planNameFromTarget ??
+                      'Đợt chi #${post.targetId ?? ''}',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFFEA580C), // orange bold
+                  ),
+                ),
+
+                // Chiến dịch
+                if (_campaignTitle != null &&
+                    _campaignTitle!.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Text(
+                        'Chiến dịch: ',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: _text,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          _campaignTitle!,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: _text,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+
+                // Trạng thái
+                if (_expenditureData != null) ...<Widget>[
+                  const SizedBox(height: 6),
+                  _buildStatusRow(),
+                ],
+
+                // Ngày tạo
+                if (_expenditureData?['createdAt'] != null) ...<Widget>[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: <Widget>[
+                      const Icon(Icons.calendar_today_outlined,
+                          size: 14, color: _muted),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Ngày tạo: ${_formatDate(_expenditureData!['createdAt'] as String?)}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: _muted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+
+                const SizedBox(height: 14),
+
+                // Nút "Xem chi tiết"
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _navigateToExpenditureDetail,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: _purple,
+                      side: BorderSide(color: _purple.withOpacity(0.5)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 16,
+                      ),
+                    ),
+                    icon: const Icon(Icons.open_in_new, size: 16),
+                    label: const Text(
+                      'Xem chi tiết',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildStatusRow() {
+    final String status =
+        ((_expenditureData?['status'] ?? _expenditureData?['evidenceStatus']) as String? ?? '')
+            .toUpperCase();
+    final String label = _statusLabels[status] ?? status;
+    final Color color = _statusColors[status] ?? _muted;
+
+    return Row(
+      children: <Widget>[
+        const Text(
+          'Trạng thái: ',
+          style: TextStyle(
+            fontSize: 13,
+            color: _text,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _navigateToExpenditureDetail() async {
+    if (_expenditureData == null && _post?.targetId == null) return;
+
+    Map<String, dynamic> expenditure;
+    String campaignType = 'ITEMIZED';
+
+    if (_expenditureData != null) {
+      expenditure = _expenditureData!;
+      // Determine campaign type
+      final int? campaignId = _parseInt(expenditure['campaignId']);
+      if (campaignId != null) {
+        try {
+          final Response<dynamic> cRes =
+              await _campaignSvc.getCampaign(campaignId);
+          if (cRes.data is Map<String, dynamic>) {
+            final dynamic t = (cRes.data as Map<String, dynamic>)['type'];
+            if (t != null && t.toString().trim().isNotEmpty) {
+              campaignType = t.toString().trim();
+            }
+          }
+        } catch (_) {}
+      }
+    } else {
+      // Fallback: fetch from API
+      try {
+        final Response<dynamic> res =
+            await _expenditureSvc.getExpenditureById(_post!.targetId!);
+        if (res.data is! Map<String, dynamic>) return;
+        expenditure = Map<String, dynamic>.from(res.data as Map);
+      } catch (_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Không mở được minh chứng chi tiêu.')),
+          );
+        }
+        return;
+      }
+    }
+
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ExpenditureDetailScreen(
+          expenditure: expenditure,
+          campaignType: campaignType,
+          forcePublicView: true,
+        ),
+      ),
+    );
+  }
+
   // ─── Post Content ─────────────────────────────────────────────────────────
   Widget _buildPostContent() {
     final FeedPostModel p = _post!;
@@ -346,25 +752,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           // Author
           Row(
             children: <Widget>[
-              CircleAvatar(
+              SafeNetworkAvatar(
+                imageUrl: p.authorAvatar,
+                name: p.authorName.isNotEmpty ? p.authorName : '?',
                 radius: 22,
                 backgroundColor: const Color(0xFFE5E7EB),
-                backgroundImage:
-                    p.authorAvatar != null && p.authorAvatar!.isNotEmpty
-                        ? NetworkImage(p.authorAvatar!)
-                        : null,
-                child: p.authorAvatar == null || p.authorAvatar!.isEmpty
-                    ? Text(
-                        p.authorName.isNotEmpty
-                            ? p.authorName[0].toUpperCase()
-                            : '?',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF6B7280),
-                          fontSize: 18,
-                        ),
-                      )
-                    : null,
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF6B7280),
+                  fontSize: 18,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -385,11 +782,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                             p.targetName!.isNotEmpty) ...<Widget>[
                           Flexible(
                             child: Text(
-                              p.targetName!,
-                              style: const TextStyle(
+                              _displayTargetName(p.targetName!),
+                              style: TextStyle(
                                 fontSize: 12,
-                                color: Color(0xFF2563EB),
-                                fontWeight: FontWeight.w500,
+                                color: _isEvidence(p)
+                                    ? _purple
+                                    : const Color(0xFF2563EB),
+                                fontWeight: FontWeight.w600,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -582,26 +981,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          CircleAvatar(
+          SafeNetworkAvatar(
+            imageUrl: comment.authorAvatar,
+            name: comment.authorName.isNotEmpty ? comment.authorName : '?',
             radius: 16,
             backgroundColor: const Color(0xFFE5E7EB),
-            backgroundImage: comment.authorAvatar != null &&
-                    comment.authorAvatar!.isNotEmpty
-                ? NetworkImage(comment.authorAvatar!)
-                : null,
-            child: comment.authorAvatar == null ||
-                    comment.authorAvatar!.isEmpty
-                ? Text(
-                    comment.authorName.isNotEmpty
-                        ? comment.authorName[0].toUpperCase()
-                        : '?',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF6B7280),
-                    ),
-                  )
-                : null,
+            textStyle: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF6B7280),
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(

@@ -6,6 +6,8 @@ class BankAccountModel {
   final String accountHolderName;
   final bool isVerified;
   final String status;
+  final int? campaignId;
+  String? campaignTitle;
 
   BankAccountModel({
     required this.id,
@@ -15,6 +17,8 @@ class BankAccountModel {
     required this.accountHolderName,
     required this.isVerified,
     required this.status,
+    this.campaignId,
+    this.campaignTitle,
   });
 
   factory BankAccountModel.fromJson(Map<String, dynamic> json) {
@@ -26,6 +30,7 @@ class BankAccountModel {
       accountHolderName: json['accountHolderName'],
       isVerified: json['isVerified'] ?? false,
       status: json['status'] ?? 'PENDING',
+      campaignId: json['campaignId'],
     );
   }
 
@@ -38,6 +43,7 @@ class BankAccountModel {
       'accountHolderName': accountHolderName,
       'isVerified': isVerified,
       'status': status,
+      'campaignId': campaignId,
     };
   }
 }

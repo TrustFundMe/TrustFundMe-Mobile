@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/api/campaign_service.dart';
 import '../../core/api/user_service.dart';
 import '../../core/models/bank_account_model.dart';
 
@@ -12,6 +13,7 @@ class BankAccountsScreen extends StatefulWidget {
 
 class _BankAccountsScreenState extends State<BankAccountsScreen> {
   final UserService _userService = UserService();
+  final CampaignService _campaignService = CampaignService();
   bool _isLoading = true;
   List<BankAccountModel> _accounts = [];
 
@@ -39,11 +41,36 @@ class _BankAccountsScreenState extends State<BankAccountsScreen> {
             .toList();
         if (!mounted) return;
         setState(() => _accounts = list);
+
+        // Fetch campaign titles cho các account có campaignId
+        _fetchCampaignTitles(list);
       }
     } catch (e) {
       debugPrint('Error fetching bank accounts: $e');
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// Lấy tên chiến dịch cho từng bank account có campaignId.
+  Future<void> _fetchCampaignTitles(List<BankAccountModel> accounts) async {
+    for (final account in accounts) {
+      if (account.campaignId == null) continue;
+      try {
+        final res = await _campaignService.getCampaign(account.campaignId!);
+        if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+          final data = res.data as Map<String, dynamic>;
+          final title = data['title'] as String?;
+          if (title != null && mounted) {
+            setState(() {
+              account.campaignTitle = title;
+            });
+          }
+        }
+      } catch (e) {
+        debugPrint(
+            'Error fetching campaign ${account.campaignId}: $e');
+      }
     }
   }
 
@@ -336,6 +363,29 @@ class _BankAccountsScreenState extends State<BankAccountsScreen> {
                   '${_maskAccountNumber(account.accountNumber)} • ${account.accountHolderName}',
                   style: const TextStyle(fontSize: 12, color: _textGray),
                 ),
+                // Hiển thị tên chiến dịch liên kết
+                if (account.campaignId != null) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(Icons.campaign_outlined,
+                          size: 13, color: _primary),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'Chiến dịch: ${account.campaignTitle ?? '#${account.campaignId}'}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: _primary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 if (account.isVerified) ...[
                   const SizedBox(height: 4),
                   Row(
