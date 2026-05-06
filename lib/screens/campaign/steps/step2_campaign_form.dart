@@ -181,12 +181,12 @@ class _Step2CampaignFormState extends State<Step2CampaignForm>
     try {
       final response = await _mediaService.uploadMedia(
         file,
-        mediaType: 'IMAGE',
-        description: 'Campaign image',
+        mediaType: 'PHOTO',
       );
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = response.data;
-        final int? mediaId = data['id'] as int? ?? data['mediaId'] as int?;
+        final int? mediaId = (data['id'] as num?)?.toInt() ??
+            (data['mediaId'] as num?)?.toInt();
         if (mounted && index < _uploadedMediaIds.length) {
           setState(() => _uploadedMediaIds[index] = mediaId);
         }
