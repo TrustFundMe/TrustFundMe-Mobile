@@ -5,7 +5,6 @@ import 'package:image_picker/image_picker.dart';
 import '../core/utils/image_cropper_helper.dart';
 import '../core/providers/auth_provider.dart';
 import 'email_verification_screen.dart';
-import 'impact_screen.dart';
 import 'login_screen.dart';
 import 'my_campaigns_screen.dart';
 import 'chat_list_screen.dart';
@@ -457,15 +456,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 crossAxisSpacing: 12,
                 childAspectRatio: 2.2,
                 children: [
-                  _buildQuickAction(
-                    icon: Icons.favorite_outline,
-                    title: "Tác động",
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const ImpactScreen()),
-                      );
-                    },
-                  ),
                   _buildQuickAction(
                     icon: Icons.notifications_outlined,
                     title: "Thông báo",

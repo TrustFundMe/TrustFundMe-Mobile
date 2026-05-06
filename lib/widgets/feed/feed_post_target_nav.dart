@@ -7,11 +7,27 @@ import '../../core/models/feed_post_model.dart';
 import '../../screens/campaign_detail_screen.dart';
 import '../../screens/expenditure_detail_screen.dart';
 
-/// Mở chiến dịch hoặc đợt chi từ [targetId] / [targetType] của bài feed.
-Future<void> openFeedPostTarget(
+int? _extractEvidenceExpenditureId(FeedPostModel post) {
+  final RegExp re = RegExp(r'evidence\D*(\d+)', caseSensitive: false);
+  final String a = (post.title ?? '').trim();
+  final String b = (post.targetName ?? '').trim();
+  final Match? m = re.firstMatch(a.isNotEmpty ? a : b);
+  if (m == null) return null;
+  return int.tryParse(m.group(1)!);
+}
+
+bool isEvidencePost(FeedPostModel post) {
+  final String type = post.postType.trim().toUpperCase();
+  if (type.contains('EVIDENCE')) return true;
+  final String t = (post.title ?? '').trim().toLowerCase();
+  final String n = (post.targetName ?? '').trim().toLowerCase();
+  return t.startsWith('evidence') || n.startsWith('evidence');
+}
+
+Future<void> _openExpenditureTarget(
   BuildContext context,
   ApiService api,
-  FeedPostModel post,
+  int expenditureId,
 ) async {
   int? parseInt(dynamic v) {
     if (v == null) return null;
@@ -20,10 +36,68 @@ Future<void> openFeedPostTarget(
     return int.tryParse(v.toString());
   }
 
+  try {
+    final Response<dynamic> res = await api.getExpenditureById(expenditureId);
+    final dynamic data = res.data;
+    if (data is! Map) {
+      throw Exception('invalid expenditure payload');
+    }
+    final Map<String, dynamic> exp = Map<String, dynamic>.from(data);
+    final int? campaignId = parseInt(exp['campaignId']) ??
+        parseInt((exp['campaign'] as Map?)?['id']);
+    if (campaignId != null) {
+      exp['campaignId'] = campaignId;
+    }
+    String campaignType = 'ITEMIZED';
+    if (campaignId != null) {
+      try {
+        final Response<dynamic> cRes = await api.getCampaign(campaignId);
+        final dynamic c = cRes.data;
+        if (c is Map<String, dynamic>) {
+          final dynamic t = c['type'];
+          if (t != null && t.toString().trim().isNotEmpty) {
+            campaignType = t.toString().trim();
+          }
+        }
+      } catch (_) {}
+    }
+    if (!context.mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ExpenditureDetailScreen(
+          expenditure: exp,
+          campaignType: campaignType,
+          forcePublicView: true,
+        ),
+      ),
+    );
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không mở được minh chứng chi tiêu.')),
+      );
+    }
+  }
+}
+
+/// Mở chiến dịch hoặc đợt chi từ [targetId] / [targetType] của bài feed.
+Future<void> openFeedPostTarget(
+  BuildContext context,
+  ApiService api,
+  FeedPostModel post,
+) async {
   final int? tid = post.targetId;
-  if (tid == null) return;
   final String tt = (post.targetType ?? '').trim().toUpperCase();
+  final int? evidenceExpenditureId = _extractEvidenceExpenditureId(post);
   if (!context.mounted) return;
+
+  // Ưu tiên mở đợt chi khi đây là bài minh chứng (dù targetType không chuẩn).
+  if (evidenceExpenditureId != null) {
+    await _openExpenditureTarget(context, api, evidenceExpenditureId);
+    return;
+  }
+
+  if (tid == null) return;
 
   if (tt == 'CAMPAIGN') {
     final String title = (post.targetName ?? '').trim().isEmpty
@@ -40,48 +114,7 @@ Future<void> openFeedPostTarget(
   }
 
   if (tt == 'EXPENDITURE') {
-    try {
-      final Response<dynamic> res = await api.getExpenditureById(tid);
-      final dynamic data = res.data;
-      if (data is! Map) {
-        throw Exception('invalid expenditure payload');
-      }
-      final Map<String, dynamic> exp = Map<String, dynamic>.from(data);
-      final int? campaignId = parseInt(exp['campaignId']) ??
-          parseInt((exp['campaign'] as Map?)?['id']);
-      if (campaignId != null) {
-        exp['campaignId'] = campaignId;
-      }
-      String campaignType = 'ITEMIZED';
-      if (campaignId != null) {
-        try {
-          final Response<dynamic> cRes = await api.getCampaign(campaignId);
-          final dynamic c = cRes.data;
-          if (c is Map<String, dynamic>) {
-            final dynamic t = c['type'];
-            if (t != null && t.toString().trim().isNotEmpty) {
-              campaignType = t.toString().trim();
-            }
-          }
-        } catch (_) {}
-      }
-      if (!context.mounted) return;
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute<void>(
-          builder: (_) => ExpenditureDetailScreen(
-            expenditure: exp,
-            campaignType: campaignType,
-            forcePublicView: true,
-          ),
-        ),
-      );
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không mở được đợt chi.')),
-        );
-      }
-    }
+    await _openExpenditureTarget(context, api, tid);
   }
 }
 
@@ -131,16 +164,21 @@ class FeedPostTargetPill extends StatelessWidget {
     final bool isCampaign = tt == 'CAMPAIGN';
     final String originalTargetName = post.targetName ?? '';
     final String rawName = _cleanTargetName(originalTargetName);
-    final bool isEvidencePost = !isCampaign && _isEvidenceTarget(originalTargetName);
+    final bool evidence = isEvidencePost(post) ||
+        (!isCampaign && _isEvidenceTarget(originalTargetName));
     final String expenditureLabel = _formatExpenditureLabel(rawName, tid);
-    final String label = isCampaign
-        ? (rawName.isEmpty ? 'Chiến dịch #$tid' : rawName)
-        : (isEvidencePost ? 'Minh chứng cho $expenditureLabel' : expenditureLabel);
+    final String label = evidence
+        ? (rawName.isEmpty ? 'Minh chứng chi tiêu' : 'Minh chứng • $expenditureLabel')
+        : (isCampaign
+            ? (rawName.isEmpty ? 'Chiến dịch #$tid' : rawName)
+            : expenditureLabel);
+    final Color fg = evidence ? const Color(0xFF6D28D9) : const Color(0xFF166534);
+    final Color bg = evidence ? const Color(0xFFF5F3FF) : const Color(0xFFECFDF5);
 
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: Material(
-        color: const Color(0xFFECFDF5),
+        color: bg,
         borderRadius: BorderRadius.circular(999),
         child: InkWell(
           onTap: () => openFeedPostTarget(context, api, post),
@@ -150,11 +188,13 @@ class FeedPostTargetPill extends StatelessWidget {
             child: Row(
               children: <Widget>[
                 Icon(
-                  isCampaign
-                      ? Icons.campaign_outlined
-                      : Icons.receipt_long_outlined,
+                  evidence
+                      ? Icons.verified_outlined
+                      : (isCampaign
+                          ? Icons.campaign_outlined
+                          : Icons.receipt_long_outlined),
                   size: 18,
-                  color: const Color(0xFF166534),
+                  color: fg,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -162,17 +202,17 @@ class FeedPostTargetPill extends StatelessWidget {
                     label,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
-                      color: Color(0xFF166534),
+                      color: fg,
                     ),
                   ),
                 ),
-                const Icon(
+                Icon(
                   Icons.chevron_right,
                   size: 20,
-                  color: Color(0xFF166534),
+                  color: fg,
                 ),
               ],
             ),

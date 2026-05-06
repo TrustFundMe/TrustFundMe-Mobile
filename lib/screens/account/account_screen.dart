@@ -1,14 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+
 import '../../core/providers/auth_provider.dart';
+import '../../core/utils/image_cropper_helper.dart';
+import '../appointment_schedule_screen.dart';
+import '../chat_list_screen.dart';
+import '../kyc/kyc_screen.dart';
 import '../login_screen.dart';
 import '../my_campaigns_screen.dart';
-import '../impact_screen.dart';
-import '../kyc/kyc_screen.dart';
+import '../my_feed_screen.dart';
+import '../my_flags_screen.dart';
 import '../notifications/notification_screen.dart';
-import 'donation_history_screen.dart';
+import '../profile_screen.dart';
 import 'bank_accounts_screen.dart';
 import 'change_password_screen.dart';
+import 'donation_history_screen.dart';
 
 /// Màn hình "Tài khoản" — menu chính cho các chức năng cá nhân.
 class AccountScreen extends StatelessWidget {
@@ -91,23 +98,65 @@ class AccountScreen extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  // Avatar
-                  Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border:
-                          Border.all(color: _primary.withOpacity(0.2), width: 3),
-                    ),
-                    child: CircleAvatar(
-                      radius: 44,
-                      backgroundColor: Colors.white,
-                      backgroundImage: user.avatarUrl != null
-                          ? NetworkImage(user.avatarUrl!)
-                          : null,
-                      child: user.avatarUrl == null
-                          ? const Icon(Icons.person, size: 48, color: Colors.grey)
-                          : null,
-                    ),
+                  // Avatar + đổi ảnh (cùng luồng Supabase + updateProfile như web / ProfileScreen)
+                  Stack(
+                    alignment: Alignment.bottomRight,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: _primary.withOpacity(0.2), width: 3),
+                        ),
+                        child: CircleAvatar(
+                          radius: 44,
+                          backgroundColor: Colors.white,
+                          backgroundImage: user.avatarUrl != null
+                              ? NetworkImage(user.avatarUrl!)
+                              : null,
+                          child: user.avatarUrl == null
+                              ? const Icon(Icons.person,
+                                  size: 48, color: Colors.grey)
+                              : null,
+                        ),
+                      ),
+                      if (auth.isLoading)
+                        Positioned.fill(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.35),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Center(
+                              child: SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (!auth.isLoading)
+                        GestureDetector(
+                          onTap: () => _pickAccountAvatar(context),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _primary,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            padding: const EdgeInsets.all(6),
+                            child: const Icon(
+                              Icons.camera_alt,
+                              size: 16,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   Text(user.fullName,
@@ -152,11 +201,29 @@ class AccountScreen extends StatelessWidget {
             _buildSectionLabel('QUẢN LÝ'),
             _buildMenuGroup(context, [
               _MenuItem(
+                icon: Icons.person_outline,
+                title: 'Hồ sơ của tôi',
+                subtitle: 'Tên, số điện thoại, ngân hàng trong hồ sơ',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                ),
+              ),
+              _MenuItem(
                 icon: Icons.folder_open_outlined,
                 title: 'Chiến dịch của tôi',
                 subtitle: 'Quản lý chiến dịch gây quỹ',
                 onTap: () => Navigator.push(context,
                     MaterialPageRoute(builder: (_) => const MyCampaignsScreen())),
+              ),
+              _MenuItem(
+                icon: Icons.article_outlined,
+                title: 'Bài viết của tôi',
+                subtitle: 'Tạo, sửa và xóa bài viết',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MyFeedScreen()),
+                ),
               ),
               _MenuItem(
                 icon: Icons.history,
@@ -168,11 +235,32 @@ class AccountScreen extends StatelessWidget {
                         builder: (_) => const DonationHistoryScreen())),
               ),
               _MenuItem(
-                icon: Icons.favorite_outline,
-                title: 'Tác động của tôi',
-                subtitle: 'Xem impact từ quyên góp',
-                onTap: () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const ImpactScreen())),
+                icon: Icons.calendar_month_outlined,
+                title: 'Lịch hẹn',
+                subtitle: 'Lịch hẹn với nhân viên / chiến dịch',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const AppointmentScheduleScreen()),
+                ),
+              ),
+              _MenuItem(
+                icon: Icons.chat_bubble_outline,
+                title: 'Trò chuyện',
+                subtitle: 'Tin nhắn hỗ trợ theo chiến dịch',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ChatListScreen()),
+                ),
+              ),
+              _MenuItem(
+                icon: Icons.flag_outlined,
+                title: 'Tố cáo của tôi',
+                subtitle: 'Các báo cáo bạn đã gửi',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MyFlagsScreen()),
+                ),
               ),
             ]),
 
@@ -381,4 +469,25 @@ class _MenuItem {
     required this.onTap,
     this.trailing,
   });
+}
+
+Future<void> _pickAccountAvatar(BuildContext context) async {
+  final AuthProvider auth = Provider.of<AuthProvider>(context, listen: false);
+  if (auth.isLoading) return;
+  final ImagePicker picker = ImagePicker();
+  final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+  if (image == null || !context.mounted) return;
+  final String uploadPath =
+      await ImageCropperHelper.cropAvatar(image.path) ?? image.path;
+  final bool success = await auth.updateAvatar(uploadPath);
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        success
+            ? 'Đã cập nhật ảnh đại diện.'
+            : (auth.error ?? 'Không cập nhật được ảnh đại diện.'),
+      ),
+    ),
+  );
 }

@@ -527,12 +527,21 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!auth.isLoggedIn) return null;
     final user = auth.user;
     if (user == null) return null;
-    // Show FAB only if KYC is approved
-    if (user.kycStatus?.toUpperCase() != 'APPROVED') return null;
 
     return FloatingActionButton.extended(
       onPressed: () {
-        Navigator.pushNamed(context, '/new-campaign');
+        if (user.kycStatus?.toUpperCase() == 'APPROVED') {
+          Navigator.pushNamed(context, '/new-campaign');
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Bạn cần hoàn tất KYC để tạo chiến dịch. Chuyển đến màn xác minh.',
+            ),
+          ),
+        );
+        Navigator.pushNamed(context, '/kyc');
       },
       backgroundColor: _primary,
       foregroundColor: Colors.white,

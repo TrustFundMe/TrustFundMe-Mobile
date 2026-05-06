@@ -22,6 +22,12 @@ class ExpenditureService extends BaseService {
     return dio.get('$campaignUrl/expenditures/$expenditureId');
   }
 
+  /// Danh mục + hạng mục (items) của một expenditure — khớp web khi GET by campaign
+  /// không trả về trường `categories` nhúng.
+  Future<Response<dynamic>> getExpenditureCategories(int expenditureId) async {
+    return dio.get('$campaignUrl/expenditures/$expenditureId/categories');
+  }
+
   /// Lấy expenditure items theo campaign.
   Future<Response<dynamic>> getExpenditureItemsByCampaign(
     int campaignId,

@@ -301,6 +301,24 @@ class _CampaignPostsScreenState extends State<CampaignPostsScreen> {
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: _text,
+        actions: <Widget>[
+          IconButton(
+            tooltip: 'Đăng bài',
+            onPressed: auth.isLoggedIn
+                ? () => showCreateFeedPostSheet(
+                      context,
+                      linkedCampaignId: widget.campaignId,
+                      linkedCampaignTitle: widget.campaignTitle,
+                      onCreated: () => _load(refresh: true),
+                    )
+                : () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Đăng nhập để đăng bài.')),
+                    );
+                  },
+            icon: const Icon(Icons.edit_square),
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: () => _load(refresh: true),

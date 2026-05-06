@@ -54,8 +54,19 @@ class CommunityFeedPostCard extends StatelessWidget {
   static const Color _text = Color(0xFF111827);
   static const Color _muted = Color(0xFF6B7280);
 
+  String _displayAuthorName(String raw) {
+    final String name = raw.trim();
+    if (name.isEmpty) return 'Thành viên cộng đồng';
+    // Backend đôi khi trả nhầm authorName dạng evidenceXX cho bài minh chứng.
+    if (RegExp(r'^evidence\d*$', caseSensitive: false).hasMatch(name)) {
+      return 'Thành viên cộng đồng';
+    }
+    return name;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final String authorName = _displayAuthorName(post.authorName);
     final Widget inner = Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -80,8 +91,8 @@ class CommunityFeedPostCard extends StatelessWidget {
                   child: post.authorAvatar == null ||
                           post.authorAvatar!.isEmpty
                       ? Text(
-                          post.authorName.isNotEmpty
-                              ? post.authorName[0].toUpperCase()
+                          authorName.isNotEmpty
+                              ? authorName[0].toUpperCase()
                               : '?',
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
@@ -99,7 +110,7 @@ class CommunityFeedPostCard extends StatelessWidget {
                         children: <Widget>[
                           Expanded(
                             child: Text(
-                              post.authorName,
+                              authorName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(

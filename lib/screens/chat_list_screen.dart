@@ -65,6 +65,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
     return t.isEmpty || t.contains('#$campaignId');
   }
 
+  String _effectiveCampaignTitle(Conversation conv) {
+    final String? override = _campaignTitleOverrides[conv.campaignId];
+    final String base = (override ?? conv.campaignTitle ?? '').trim();
+    if (base.isNotEmpty) return base;
+    return "Chiến dịch #${conv.campaignId}";
+  }
+
+  bool _isConversationDisplayable(Conversation conv) {
+    final String title = _effectiveCampaignTitle(conv);
+    return !_looksLikeFallbackIdTitle(title, conv.campaignId);
+  }
+
   Future<void> _resolveCampaignTitles(List<Conversation> conversations) async {
     final Set<int> missingCampaignIds = conversations
         .where((Conversation c) => _looksLikeFallbackIdTitle(c.campaignTitle, c.campaignId))
@@ -76,7 +88,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
     for (final int campaignId in missingCampaignIds) {
       try {
         final response = await _api.getCampaign(campaignId);
-        final dynamic payload = response.data;
+        dynamic payload = response.data;
+        // Unwrap nếu backend trả về { data: {...} } hoặc { code, data: {...} }
+        if (payload is Map<String, dynamic>) {
+          if (payload.containsKey('data') && payload['data'] is Map<String, dynamic>) {
+            payload = payload['data'];
+          } else if (payload.containsKey('result') && payload['result'] is Map<String, dynamic>) {
+            payload = payload['result'];
+          }
+        }
         if (payload is! Map<String, dynamic>) continue;
         final String title = (payload['title'] as String?)?.trim() ?? '';
         if (title.isNotEmpty) {
@@ -90,6 +110,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final List<Conversation> visibleConversations =
+        _conversations.where(_isConversationDisplayable).toList();
+
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
       appBar: AppBar(
@@ -100,10 +123,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Color(0xFF1F2937), size: 20),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        automaticallyImplyLeading: false,
       ),
       body: RefreshIndicator(
         onRefresh: _loadConversations,
@@ -111,17 +131,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
             ? const Center(child: CircularProgressIndicator())
             : _errorMessage != null
                 ? _buildErrorState()
-                : _conversations.isEmpty
+                : visibleConversations.isEmpty
                     ? _buildEmptyState()
                     : ListView.separated(
                     padding: const EdgeInsets.all(16),
-                    itemCount: _conversations.length,
+                    itemCount: visibleConversations.length,
                     separatorBuilder: (context, index) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
-                      final conv = _conversations[index];
+                      final conv = visibleConversations[index];
                       return _ConversationCard(
                         conversation: conv,
-                        campaignTitleOverride: _campaignTitleOverrides[conv.campaignId],
+                        campaignTitle: _effectiveCampaignTitle(conv),
                       );
                     },
                   ),
@@ -174,20 +194,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
 
 class _ConversationCard extends StatelessWidget {
   final Conversation conversation;
-  final String? campaignTitleOverride;
+  final String campaignTitle;
 
   const _ConversationCard({
     required this.conversation,
-    this.campaignTitleOverride,
+    required this.campaignTitle,
   });
 
   @override
   Widget build(BuildContext context) {
-    final String campaignTitle =
-        (campaignTitleOverride ?? conversation.campaignTitle ?? '').trim().isNotEmpty
-            ? (campaignTitleOverride ?? conversation.campaignTitle!).trim()
-            : "Chiến dịch #${conversation.campaignId}";
-
     return InkWell(
       onTap: () {
         Navigator.push(

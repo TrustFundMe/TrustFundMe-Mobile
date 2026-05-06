@@ -7,6 +7,7 @@ import '../../core/api/media_service.dart';
 import '../../core/models/feed_post_model.dart';
 import '../../core/models/feed_post_media_model.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../widgets/feed/create_feed_post_sheet.dart';
 import 'post_detail_screen.dart';
 
 /// Community Feed Screen — hiển thị bài viết từ tất cả campaigns.
@@ -207,10 +208,15 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   }
 
   static String _stripHtml(String raw) {
-    return raw
+    String cleaned = raw
         .replaceAll(RegExp(r'<[^>]*>'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
+    cleaned = cleaned.replaceFirst(
+      RegExp(r'^evidence\S*\s*[-:|]?\s*', caseSensitive: false),
+      '',
+    );
+    return cleaned;
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────
@@ -227,6 +233,25 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: _text,
+        actions: <Widget>[
+          IconButton(
+            tooltip: 'Đăng bài',
+            onPressed: () {
+              final auth = context.read<AuthProvider>();
+              if (!auth.isLoggedIn) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Đăng nhập để đăng bài.')),
+                );
+                return;
+              }
+              showCreateFeedPostSheet(
+                context,
+                onCreated: () => _loadFeed(refresh: true),
+              );
+            },
+            icon: const Icon(Icons.edit_square),
+          ),
+        ],
       ),
       body: RefreshIndicator(
         color: _primary,

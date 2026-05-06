@@ -220,16 +220,21 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
             .toList();
       }
 
-      // Parse expenditures → plans
+      // Parse expenditures → plans (đồng bộ logic danbox: backend thường không nhúng
+      // categories trong GET /expenditures/campaign/{id}, phải gọi thêm GET .../categories)
       final dynamic r3 = results[3];
       final dynamic eRaw = _unwrap(r3);
       if (eRaw is List) {
         try {
-          _plans = _parseExpenditures(eRaw);
+          final enriched = await _embedExpenditureCategoriesIfNeeded(eRaw);
+          _plans = _parseExpenditures(enriched);
         } catch (_) {}
       } else if (eRaw is Map<String, dynamic> && eRaw['content'] is List) {
         try {
-          _plans = _parseExpenditures(eRaw['content'] as List<dynamic>);
+          final enriched = await _embedExpenditureCategoriesIfNeeded(
+            eRaw['content'] as List<dynamic>,
+          );
+          _plans = _parseExpenditures(enriched);
         } catch (_) {}
       }
 
@@ -274,10 +279,28 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       await _loadSecondaryData();
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _errorMessage = 'Không tải được chi tiết. Kéo xuống để thử lại.';
-      });
+      // Luôn tắt loading. Chỉ set errorMessage khi KHÔNG có data nào để hiển thị.
+      // Nếu widget.campaign đã có id hợp lệ (đến từ danh sách), render với data sẵn có
+      // và chỉ thông báo toast thay vì chặn toàn bộ màn hình.
+      debugPrint('[CampaignDetail] _load lỗi id=${_campaign.id}: $e');
+      if (_campaign.id > 0) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Không thể làm mới dữ liệu. Kéo xuống để thử lại.'),
+            action: SnackBarAction(
+              label: 'Thử lại',
+              onPressed: _load,
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      } else {
+        setState(() {
+          _loading = false;
+          _errorMessage = 'Không tải được chi tiết. Kéo xuống để thử lại.';
+        });
+      }
     }
   }
 
@@ -334,7 +357,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         }
       } else if (flagRaw is List) {
         // Some backends return flags as a direct list
-        _flagged = (flagRaw as List).any((f) =>
+        _flagged = flagRaw.any((f) =>
             f is Map<String, dynamic> && f['campaignId'] == _campaign.id);
       }
 
@@ -352,6 +375,42 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     } catch (_) {
       // Non-critical, silently ignore
     }
+  }
+
+  /// Giống [campaigns-details/page.tsx]: nếu expenditure không có `categories` trong
+  /// payload list campaign, fetch từng `/expenditures/{id}/categories` kèm items.
+  Future<List<dynamic>> _embedExpenditureCategoriesIfNeeded(
+    List<dynamic> raw,
+  ) async {
+    final out = <dynamic>[];
+    for (final e in raw) {
+      if (e is! Map<String, dynamic>) {
+        out.add(e);
+        continue;
+      }
+      final m = Map<String, dynamic>.from(e);
+      final cats = m['categories'] as List<dynamic>?;
+      if (cats != null && cats.isNotEmpty) {
+        out.add(m);
+        continue;
+      }
+      final id = (m['id'] as num?)?.toInt();
+      if (id == null) {
+        out.add(m);
+        continue;
+      }
+      try {
+        final res = await _expenditureSvc.getExpenditureCategories(id);
+        final data = res.data;
+        if (data is List<dynamic> && data.isNotEmpty) {
+          m['categories'] = data;
+        }
+      } catch (_) {
+        // giữ không categories — expandable vẫn hiện như hiện tại
+      }
+      out.add(m);
+    }
+    return out;
   }
 
   List<ExpenditurePlanModel> _parseExpenditures(List<dynamic> raw) {
@@ -1045,8 +1104,41 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
 
   // ─── Donate Card (inline) ───
   Widget _buildDonateCard(int raised, int goal, int pct, int donorCount) {
-    final remaining = (goal - raised).clamp(0, goal);
-    final ratio = (pct / 100).clamp(0.0, 1.0);
+    final bool hasGoal = goal > 0;
+    final int shortage = goal - raised;
+    // Vòng tiến độ: đầy khi đạt/vượt mục tiêu; màu xanh khi đã đủ để tránh cảm giác “vẫn chưa xong”.
+    final double ringRatio = hasGoal
+        ? (raised / goal).clamp(0.0, 1.0)
+        : (pct / 100).clamp(0.0, 1.0);
+    final int percentLabel = hasGoal
+        ? ((raised * 100) ~/ goal).clamp(0, 999)
+        : pct.clamp(0, 999);
+    final Color ringColor =
+        hasGoal && raised >= goal ? _green : _brand;
+
+    String progressSubline() {
+      if (!hasGoal) return 'Đang cập nhật số liệu mục tiêu';
+      if (raised >= goal) return 'Đã đạt mục tiêu';
+      return 'Còn ${_fmtMoney(shortage)} đ';
+    }
+
+    String remainingCaption() {
+      if (!hasGoal) {
+        return 'Mục tiêu chưa được cấu hình — bạn vẫn có thể quyên góp nếu muốn.';
+      }
+      if (raised < goal) {
+        return 'Còn thiếu: ${_fmtMoney(shortage)} VNĐ';
+      }
+      if (raised == goal) {
+        return 'Đã đủ mục tiêu — bạn vẫn có thể tiếp tục quyên góp để đồng hành.';
+      }
+      return 'Đã vượt mục tiêu (+${_fmtMoney(raised - goal)} đ). Cảm ơn cộng đồng đã ủng hộ thêm so với dự kiến.';
+    }
+
+    String ratioLine() {
+      if (!hasGoal) return '${_fmtMoney(raised)} VNĐ';
+      return '${_fmtMoney(raised)} / ${_fmtMoney(goal)} VNĐ';
+    }
 
     return Container(
       decoration: BoxDecoration(
@@ -1075,17 +1167,17 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                     alignment: Alignment.center,
                     children: [
                       CircularProgressIndicator(
-                        value: ratio,
+                        value: ringRatio,
                         strokeWidth: 7,
                         backgroundColor: Colors.black.withOpacity(0.1),
-                        color: _brand,
+                        color: ringColor,
                         strokeCap: StrokeCap.round,
                       ),
                       Text(
-                        '$pct%',
+                        '$percentLabel%',
                         style: const TextStyle(
                           fontWeight: FontWeight.w800,
-                          fontSize: 15,
+                          fontSize: 14,
                           color: _dark,
                         ),
                       ),
@@ -1093,21 +1185,21 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                const Expanded(
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
+                      const Text(
                         'Tiến trình gây quỹ',
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 14,
                         ),
                       ),
-                      SizedBox(height: 2),
+                      const SizedBox(height: 2),
                       Text(
-                        'Trạng thái gây quỹ hiện tại',
-                        style: TextStyle(fontSize: 12, color: _muted),
+                        progressSubline(),
+                        style: const TextStyle(fontSize: 12, color: _muted),
                       ),
                     ],
                   ),
@@ -1145,21 +1237,48 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                     color: _dark,
                   ),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  ratioLine(),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: hasGoal && raised >= goal ? _green : _brand,
+                  ),
+                ),
                 const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
-                      child: _statBox('Đã góp', '${_fmtMoney(raised)} VNĐ'),
+                      child: _statBox(
+                        'Đã quyên góp',
+                        '${_fmtMoney(raised)} VNĐ',
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: _statBox(
-                          'Lượt ủng hộ', _fmtMoney(donorCount)),
+                          'Lượt ủng hộ', donorCount.toString()),
                     ),
                   ],
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 10),
+
+          // Điều khoản trước CTA — tránh nút xám mà người dùng không hiểu vì sao.
+          Divider(color: const Color(0x1A0F172A)),
+          _checkRow(
+            value: _isAnonymous,
+            onChanged: (v) => setState(() => _isAnonymous = v ?? false),
+            label: 'Quyên góp ẩn danh',
+          ),
+          _checkRow(
+            value: _isAgreed,
+            onChanged: (v) => setState(() => _isAgreed = v ?? false),
+            label: 'Tôi đồng ý với điều khoản sử dụng',
+            richLabel: true,
           ),
           const SizedBox(height: 10),
 
@@ -1302,28 +1421,26 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Còn thiếu: ${_fmtMoney(remaining)} VNĐ',
-            style: const TextStyle(
+            remainingCaption(),
+            style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w600,
-              color: _muted,
+              color: hasGoal && raised >= goal ? _green : _muted,
+              height: 1.35,
             ),
           ),
-
-          // Checkboxes
-          const SizedBox(height: 8),
-          Divider(color: const Color(0x1A0F172A)),
-          _checkRow(
-            value: _isAnonymous,
-            onChanged: (v) => setState(() => _isAnonymous = v ?? false),
-            label: 'Quyên góp ẩn danh',
-          ),
-          _checkRow(
-            value: _isAgreed,
-            onChanged: (v) => setState(() => _isAgreed = v ?? false),
-            label: 'Tôi đồng ý với điều khoản sử dụng',
-            richLabel: true,
-          ),
+          if (!_isAgreed && _donateAmount >= 10000)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Vui lòng đánh dấu đồng ý điều khoản phía trên để bật nút quyên góp.',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: _brand.withOpacity(0.95),
+                ),
+              ),
+            ),
 
           // Recent donors
           const SizedBox(height: 8),
@@ -1407,55 +1524,61 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     required String label,
     bool richLabel = false,
   }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 20,
-          height: 20,
-          child: Checkbox(
-            value: value,
-            onChanged: onChanged,
-            activeColor: _brand,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: GestureDetector(
-            onTap: () => onChanged(!value),
-            child: Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: richLabel
-                  ? RichText(
-                      text: TextSpan(
-                        style: const TextStyle(fontSize: 12, color: _textDark),
-                        children: [
-                          const TextSpan(text: 'Tôi đồng ý với '),
-                          TextSpan(
-                            text: 'điều khoản sử dụng',
-                            style: TextStyle(
-                              color: _brand,
-                              fontWeight: FontWeight.w700,
-                              decoration: TextDecoration.underline,
-                            ),
-                          ),
-                          const TextSpan(text: ' của nền tảng'),
-                        ],
-                      ),
-                    )
-                  : Text(
-                      label,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: _textDark,
-                      ),
-                    ),
+    return InkWell(
+      onTap: () => onChanged(!value),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        // Tăng vùng bấm để dễ thao tác (đặc biệt trên mobile).
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: Checkbox(
+                value: value,
+                onChanged: onChanged,
+                activeColor: _brand,
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+              ),
             ),
-          ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: richLabel
+                    ? RichText(
+                        text: TextSpan(
+                          style:
+                              const TextStyle(fontSize: 13, color: _textDark),
+                          children: [
+                            const TextSpan(text: 'Tôi đồng ý với '),
+                            TextSpan(
+                              text: 'điều khoản sử dụng',
+                              style: TextStyle(
+                                color: _brand,
+                                fontWeight: FontWeight.w800,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                            const TextSpan(text: ' của nền tảng'),
+                          ],
+                        ),
+                      )
+                    : Text(
+                        label,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: _textDark,
+                        ),
+                      ),
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -1540,7 +1663,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'Tiến Độ Chi Tiêu',
+                'Giai đoạn của chiến dịch',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
@@ -1548,7 +1671,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                 ),
               ),
               Text(
-                '$completed/${_plans.length} đợt hoàn thành',
+                '$completed/${_plans.length} đợt đã hoàn thành',
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -1665,7 +1788,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                               radius: 16,
                               backgroundImage: (p.authorAvatar ?? '')
                                       .isNotEmpty
-                                  ? NetworkImage(p.authorAvatar!)
+                                  ? NetworkImage(p.authorAvatar ?? '')
                                   : null,
                               child: (p.authorAvatar ?? '').isEmpty
                                   ? const Icon(Icons.person,
@@ -1698,10 +1821,10 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                             ),
                           ],
                         ),
-                        if ((p.content ?? '').trim().isNotEmpty) ...[
+                        if (p.content.trim().isNotEmpty) ...[
                           const SizedBox(height: 8),
                           Text(
-                            p.content!.trim(),
+                            p.content.trim(),
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(

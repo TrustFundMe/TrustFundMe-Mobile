@@ -43,6 +43,8 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   bool _dwellDone = false;
   bool _isFollowingCampaign = true;
   bool _followStateResolved = false;
+  Map<String, dynamic>? _evidenceMeta;
+  bool _loadingEvidenceMeta = false;
 
   @override
   void initState() {
@@ -66,6 +68,18 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
     return 'lúc $hh:$mm ${d.day} tháng ${d.month}, ${d.year}';
   }
 
+  static String _cleanEvidenceTitle(String? raw) {
+    final String t = (raw ?? '').trim();
+    if (t.isEmpty) return '';
+    return t
+        .replaceFirst(
+          RegExp(r'^evidence\S*\s*[-:|]?\s*', caseSensitive: false),
+          '',
+        )
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
   static String _visibilityVi(String v) {
     switch (v.toUpperCase()) {
       case 'PUBLIC':
@@ -82,6 +96,15 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
   static bool _isHot(FeedPostModel p) =>
       p.viewCount >= 20 || p.likeCount >= 10;
 
+  String _displayAuthorName(String raw) {
+    final String name = raw.trim();
+    if (name.isEmpty) return 'Thành viên cộng đồng';
+    if (RegExp(r'^evidence\d*$', caseSensitive: false).hasMatch(name)) {
+      return 'Thành viên cộng đồng';
+    }
+    return name;
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -95,6 +118,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
       }
       final FeedPostModel post = FeedPostModel.fromJson(data);
       await _resolveFollowState(post);
+      await _loadEvidenceMeta(post);
       List<FeedPostMediaItem> media = <FeedPostMediaItem>[];
       try {
         final Response<dynamic> m = await _api.getMediaByPostId(widget.postId);
@@ -112,6 +136,97 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
         _loading = false;
         _error = 'Không tải được bài viết';
       });
+    }
+  }
+
+  int? _extractEvidenceExpenditureId(FeedPostModel post) {
+    final String tt = (post.targetType ?? '').trim().toUpperCase();
+    if (tt == 'EXPENDITURE' && post.targetId != null) return post.targetId;
+    final RegExp re = RegExp(r'evidence\D*(\d+)', caseSensitive: false);
+    final String a = (post.title ?? '').trim();
+    final String b = (post.targetName ?? '').trim();
+    final Match? m = re.firstMatch(a.isNotEmpty ? a : b);
+    if (m == null) return null;
+    return int.tryParse(m.group(1)!);
+  }
+
+  String _statusVi(String raw) {
+    switch (raw.toUpperCase()) {
+      case 'PENDING':
+        return 'Chờ xử lý';
+      case 'PENDING_REVIEW':
+        return 'Chờ xét duyệt';
+      case 'APPROVED':
+        return 'Đã phê duyệt';
+      case 'WITHDRAWAL_REQUESTED':
+        return 'Đã yêu cầu rút tiền';
+      case 'DISBURSED':
+        return 'Đã giải ngân';
+      case 'COMPLETED':
+        return 'Hoàn tất';
+      case 'CLOSED':
+        return 'Đã đóng';
+      case 'REJECTED':
+        return 'Từ chối';
+      default:
+        return raw;
+    }
+  }
+
+  String _dateVi(String raw) {
+    if (raw.trim().isEmpty) return '—';
+    final DateTime? d = DateTime.tryParse(raw.replaceFirst(' ', 'T'));
+    if (d == null) return raw;
+    final String dd = d.day.toString().padLeft(2, '0');
+    final String mm = d.month.toString().padLeft(2, '0');
+    return '$dd/$mm/${d.year}';
+  }
+
+  Future<void> _loadEvidenceMeta(FeedPostModel post) async {
+    if (!isEvidencePost(post)) {
+      _evidenceMeta = null;
+      _loadingEvidenceMeta = false;
+      return;
+    }
+    final int? expenditureId = _extractEvidenceExpenditureId(post);
+    if (expenditureId == null) return;
+
+    _loadingEvidenceMeta = true;
+    try {
+      final Response<dynamic> eRes = await _api.getExpenditureById(expenditureId);
+      final dynamic eData = eRes.data;
+      if (eData is! Map) return;
+      final Map<String, dynamic> exp = Map<String, dynamic>.from(eData);
+      final int? campaignId = exp['campaignId'] is int
+          ? exp['campaignId'] as int
+          : int.tryParse(exp['campaignId']?.toString() ?? '');
+
+      String campaignTitle = '';
+      if (campaignId != null) {
+        try {
+          final Response<dynamic> cRes = await _api.getCampaign(campaignId);
+          final dynamic cData = cRes.data;
+          if (cData is Map<String, dynamic>) {
+            final String t = (cData['title'] ?? '').toString().trim();
+            if (t.isNotEmpty) campaignTitle = t;
+          }
+        } catch (_) {}
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _evidenceMeta = <String, dynamic>{
+          'expenditureId': expenditureId,
+          'plan': (exp['plan'] ?? '').toString(),
+          'campaignTitle': campaignTitle,
+          'status': (exp['status'] ?? '').toString(),
+          'createdAt': (exp['createdAt'] ?? '').toString(),
+        };
+      });
+    } catch (_) {
+      // giữ fallback từ targetName
+    } finally {
+      if (mounted) setState(() => _loadingEvidenceMeta = false);
     }
   }
 
@@ -596,12 +711,44 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                           ),
                                         ),
                                       ],
+                                      if (isEvidencePost(_post!)) ...<Widget>[
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF5F3FF),
+                                            borderRadius: BorderRadius.circular(999),
+                                          ),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: <Widget>[
+                                              Icon(
+                                                Icons.verified_outlined,
+                                                size: 14,
+                                                color: Color(0xFF6D28D9),
+                                              ),
+                                              SizedBox(width: 4),
+                                              Text(
+                                                'Minh chứng',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Color(0xFF6D28D9),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ],
                                   ),
                                   const SizedBox(height: 14),
-                                  if ((_post!.title ?? '').trim().isNotEmpty)
+                                  if (_cleanEvidenceTitle(_post!.title).isNotEmpty)
                                     Text(
-                                      _post!.title!.trim(),
+                                      _cleanEvidenceTitle(_post!.title),
                                       style: const TextStyle(
                                         fontWeight: FontWeight.w800,
                                         fontSize: 22,
@@ -623,8 +770,8 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                         child: _post!.authorAvatar == null ||
                                                 _post!.authorAvatar!.isEmpty
                                             ? Text(
-                                                _post!.authorName.isNotEmpty
-                                                    ? _post!.authorName[0].toUpperCase()
+                                                _displayAuthorName(_post!.authorName).isNotEmpty
+                                                    ? _displayAuthorName(_post!.authorName)[0].toUpperCase()
                                                     : '?',
                                                 style: const TextStyle(
                                                   fontWeight: FontWeight.w800,
@@ -639,7 +786,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: <Widget>[
                                             Text(
-                                              _post!.authorName,
+                                              _displayAuthorName(_post!.authorName),
                                               style: const TextStyle(
                                                 fontWeight: FontWeight.w800,
                                                 fontSize: 15,
@@ -695,6 +842,8 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
                                     ],
                                   ),
                                   FeedPostTargetPill(api: _api, post: _post!),
+                                  if (isEvidencePost(_post!))
+                                    _buildEvidenceHighlight(_post!),
                                   const SizedBox(height: 12),
                                   SelectableText(
                                     _stripHtml(_post!.content).isNotEmpty
@@ -733,7 +882,7 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF9FAFB),
       appBar: AppBar(
-        title: const Text('Bài viết', style: TextStyle(fontWeight: FontWeight.w800)),
+        title: const Text('Chi tiết bài viết', style: TextStyle(fontWeight: FontWeight.w800)),
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: _text,
@@ -788,6 +937,104 @@ class _FeedPostDetailScreenState extends State<FeedPostDetailScreen> {
       body: Padding(
         padding: EdgeInsets.only(bottom: bottomMenuInset),
         child: body,
+      ),
+    );
+  }
+
+  Widget _buildEvidenceHighlight(FeedPostModel post) {
+    final String fallbackTarget = (post.targetName ?? '').trim().isEmpty
+        ? 'Đợt chi #${post.targetId ?? ''}'
+        : (post.targetName ?? '').trim();
+    final String plan = (_evidenceMeta?['plan'] ?? '').toString().trim();
+    final String campaignTitle =
+        (_evidenceMeta?['campaignTitle'] ?? '').toString().trim();
+    final String status = (_evidenceMeta?['status'] ?? '').toString().trim();
+    final String createdAt = (_evidenceMeta?['createdAt'] ?? '').toString().trim();
+    final String target = plan.isEmpty ? fallbackTarget : plan;
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F3FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFD8B4FE)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'MINH CHỨNG',
+            style: TextStyle(
+              color: Color(0xFF7C3AED),
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.4,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            target,
+            style: const TextStyle(
+              color: _text,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (_loadingEvidenceMeta)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else ...[
+            const SizedBox(height: 8),
+            Text(
+              'Chiến dịch: ${campaignTitle.isEmpty ? "—" : campaignTitle}',
+              style: const TextStyle(
+                color: Color(0xFF4B5563),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Trạng thái: ${status.isEmpty ? "—" : _statusVi(status)}',
+              style: const TextStyle(
+                color: Color(0xFF4B5563),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Ngày tạo: ${_dateVi(createdAt)}',
+              style: const TextStyle(
+                color: Color(0xFF4B5563),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton(
+              onPressed: () => openFeedPostTarget(context, _api, post),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFF8B5CF6)),
+                foregroundColor: const Color(0xFF7C3AED),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              ),
+              child: const Text(
+                'Xem chi tiết',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/kyc_service.dart';
 import '../../core/models/kyc_model.dart';
@@ -34,6 +35,8 @@ class _KycScreenState extends State<KycScreen> {
   static const Color webAmber = Color(0xFFF59E0B);
 
   // Loading & error
+  // (KYC trên mobile đang bị ẩn theo yêu cầu)
+  // ignore: unused_field
   bool _isLoading = true;
   bool _isSubmitting = false;
   String? _error;
@@ -56,7 +59,22 @@ class _KycScreenState extends State<KycScreen> {
   @override
   void initState() {
     super.initState();
-    _loadKycStatus();
+    // Tạm ẩn KYC trên mobile theo yêu cầu: dùng web để xác minh.
+    // Không gọi API KYC để tránh phát sinh thông báo lỗi (đặc biệt tiếng Anh).
+    _isLoading = false;
+  }
+
+  static final Uri _web = Uri.parse('https://trust-fund-me-fe.vercel.app/');
+
+  Future<void> _openWeb() async {
+    final ok = await launchUrl(_web, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Không mở được trình duyệt. Vui lòng thử lại.'),
+        ),
+      );
+    }
   }
 
   @override
@@ -327,16 +345,95 @@ class _KycScreenState extends State<KycScreen> {
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 20, color: webTextDark),
+          icon: const Icon(Icons.arrow_back_ios_new,
+              size: 20, color: webTextDark),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _buildBody(),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: webBorderGray),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: webPrimary.withOpacity(0.12),
+                  ),
+                  child: const Icon(
+                    Icons.verified_user_outlined,
+                    color: webPrimary,
+                    size: 26,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Tạm thời xác minh danh tính chỉ hỗ trợ trên web',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    color: webTextDark,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Vui lòng thực hiện xác minh trên website để dữ liệu khớp và ổn định.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: webTextGray,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                FilledButton(
+                  onPressed: _openWeb,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: webPrimary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Mở website',
+                          style: TextStyle(fontWeight: FontWeight.w800)),
+                      SizedBox(width: 8),
+                      Icon(Icons.open_in_new_rounded, size: 18),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const SelectableText(
+                  'https://trust-fund-me-fe.vercel.app/',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: webTextGray),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
+  // ignore: unused_element
   Widget _buildBody() {
     switch (_currentStatus) {
       case 'APPROVED':

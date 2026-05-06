@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../core/api/api_service.dart';
+import '../core/models/campaign_model.dart';
 import '../core/providers/chat_provider.dart';
 import '../core/models/chat_models.dart';
+import 'campaign_detail_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final int campaignId;
@@ -30,6 +32,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final ApiService _api = ApiService();
   late String _displayCampaignTitle;
   int _lastMessageCount = 0;
+  bool _openingCampaign = false;
 
   @override
   void initState() {
@@ -66,6 +69,41 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted || title.isEmpty) return;
       setState(() => _displayCampaignTitle = title);
     } catch (_) {}
+  }
+
+  dynamic _unwrapCampaignPayload(dynamic payload) {
+    if (payload is! Map<String, dynamic>) return payload;
+    if (payload['data'] is Map<String, dynamic>) return payload['data'];
+    if (payload['result'] is Map<String, dynamic>) return payload['result'];
+    return payload;
+  }
+
+  Future<void> _openCampaignDetail() async {
+    if (_openingCampaign) return;
+    setState(() => _openingCampaign = true);
+    try {
+      final response = await _api.getCampaign(widget.campaignId);
+      final dynamic payload = _unwrapCampaignPayload(response.data);
+      if (payload is! Map<String, dynamic>) {
+        throw Exception('Dữ liệu chiến dịch không hợp lệ');
+      }
+      final campaign = CampaignModel.fromJson(payload);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => CampaignDetailScreen(campaign: campaign),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Không mở được chi tiết chiến dịch. Vui lòng thử lại.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _openingCampaign = false);
+    }
   }
 
   void _scrollToBottom() {
@@ -137,6 +175,19 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Mở chiến dịch',
+            onPressed: _openingCampaign ? null : _openCampaignDetail,
+            icon: _openingCampaign
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.open_in_new_rounded, color: Color(0xFF1E293B)),
+          ),
+        ],
       ),
       body: Column(
         children: [
