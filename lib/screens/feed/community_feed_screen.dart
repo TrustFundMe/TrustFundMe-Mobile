@@ -239,13 +239,19 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen> {
   }
 
   /// Extract planName từ targetName pipe format: "evidence|Đợt 1: Mua sắm..."
+  /// - Không có pipe → null
+  /// - Có pipe nhưng suffix rỗng hoặc chỉ toàn số (ID) → null
+  /// - Có pipe + suffix là tên đợt → trả suffix
   static String? _extractPlanName(String? raw) {
     final String t = (raw ?? '').trim();
-    if (t.contains('|')) {
-      final String planName = t.split('|').sublist(1).join('|').trim();
-      if (planName.isNotEmpty) return planName;
-    }
-    return null;
+    if (!t.contains('|')) return null;
+    final List<String> parts = t.split('|');
+    if (parts.length < 2) return null;
+    final String suffix = parts.sublist(1).join('|').trim();
+    if (suffix.isEmpty) return null;
+    // Nếu suffix chỉ toàn số → đó là ID, không phải tên đợt
+    if (RegExp(r'^\d+$').hasMatch(suffix)) return null;
+    return suffix;
   }
 
   /// Strip prefix evidence khỏi targetName/title.

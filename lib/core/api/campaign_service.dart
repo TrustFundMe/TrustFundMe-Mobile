@@ -94,6 +94,16 @@ class CampaignService extends BaseService {
     return dio.get('$campaignUrl/campaign-follows/$campaignId/me');
   }
 
+  /// Lấy số lượng follower của campaign.
+  Future<Response<dynamic>> getFollowerCount(int campaignId) async {
+    return dio.get('$campaignUrl/campaign-follows/$campaignId/count');
+  }
+
+  /// Lấy danh sách followers của campaign.
+  Future<Response<dynamic>> getFollowers(int campaignId) async {
+    return dio.get('$campaignUrl/campaign-follows/$campaignId/followers');
+  }
+
   // ─── Fundraising Goals ────────────────────────────────────────────────────
 
   /// Lấy active goal của campaign.

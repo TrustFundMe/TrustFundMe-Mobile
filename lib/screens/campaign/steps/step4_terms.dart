@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/models/new_campaign_state.dart';
 
 /// Step 4: Điều khoản — hiển thị các điều khoản và yêu cầu đồng ý.
+/// Redesign: 1 checkbox tổng + nút "Cuộn xuống cuối" giống web.
 class Step4Terms extends StatefulWidget {
   final NewCampaignState campaignState;
   final ValueChanged<bool> onValidChanged;
@@ -21,7 +22,13 @@ class _Step4TermsState extends State<Step4Terms>
   final ScrollController _scrollController = ScrollController();
   bool _hasScrolledToEnd = false;
 
+  /// Orange accent color (#EA580C).
+  static const Color _orangeAccent = Color(0xFFEA580C);
+
   Acknowledgements get _ack => widget.campaignState.acknowledgements;
+
+  /// Getter tổng hợp: tất cả 4 flags đã checked?
+  bool get _allAccepted => _ack.allAccepted;
 
   @override
   bool get wantKeepAlive => true;
@@ -53,8 +60,29 @@ class _Step4TermsState extends State<Step4Terms>
   }
 
   void _validateAndNotify() {
-    final allChecked = _ack.allAccepted;
-    widget.onValidChanged(_hasScrolledToEnd && allChecked);
+    widget.onValidChanged(_hasScrolledToEnd && _allAccepted);
+  }
+
+  /// Set tất cả 4 flags cùng lúc (giống web).
+  void _setAllFlags(bool value) {
+    setState(() {
+      _ack.termsAccepted = value;
+      _ack.overfundPolicyAccepted = value;
+      _ack.transparencyAccepted = value;
+      _ack.legalLiabilityAccepted = value;
+    });
+    _validateAndNotify();
+  }
+
+  /// Scroll animated đến cuối nội dung.
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 600),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   @override
@@ -159,53 +187,75 @@ class _Step4TermsState extends State<Step4Terms>
                             'lượng trước, sau đó có thể đưa ra cơ quan có thẩm quyền nếu cần thiết.',
                       ),
                       const SizedBox(height: 20),
-
-                      if (!_hasScrolledToEnd) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.amber.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.amber.shade200),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.arrow_downward,
-                                  color: Colors.amber.shade700, size: 20),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Vui lòng cuộn xuống để đọc hết điều khoản',
-                                  style: TextStyle(
-                                    color: Colors.amber.shade800,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
 
-                // Scroll indicator overlay
+                // Fade gradient overlay phía dưới
                 if (!_hasScrolledToEnd)
                   Positioned(
                     bottom: 0,
                     left: 0,
                     right: 0,
                     child: Container(
-                      height: 40,
+                      height: 60,
                       decoration: BoxDecoration(
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(12),
+                          bottomRight: Radius.circular(12),
+                        ),
                         gradient: LinearGradient(
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: [
                             Colors.grey.shade50.withOpacity(0),
+                            Colors.grey.shade50.withOpacity(0.8),
                             Colors.grey.shade50,
                           ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // ── Nút "Cuộn xuống cuối ↓" floating ──────────────────
+                if (!_hasScrolledToEnd)
+                  Positioned(
+                    bottom: 12,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Material(
+                        elevation: 4,
+                        borderRadius: BorderRadius.circular(24),
+                        color: _orangeAccent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(24),
+                          onTap: _scrollToBottom,
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 10,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.keyboard_double_arrow_down,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Cuộn xuống cuối',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -216,50 +266,44 @@ class _Step4TermsState extends State<Step4Terms>
         ),
         const SizedBox(height: 16),
 
-        // ── Checkboxes ────────────────────────────────────────────
+        // ── 1 Checkbox tổng (giống web) ──────────────────────────
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Column(
-            children: [
-              _buildCheckbox(
-                value: _ack.termsAccepted,
-                label: 'Tôi đã đọc và đồng ý với điều khoản sử dụng',
-                enabled: _hasScrolledToEnd,
-                onChanged: (v) {
-                  setState(() => _ack.termsAccepted = v ?? false);
-                  _validateAndNotify();
-                },
+          child: Opacity(
+            opacity: _hasScrolledToEnd ? 1.0 : 0.5,
+            child: CheckboxListTile(
+              value: _allAccepted,
+              onChanged: _hasScrolledToEnd
+                  ? (v) => _setAllFlags(v ?? false)
+                  : null,
+              title: const Text(
+                'Tôi đã đọc, hiểu và đồng ý với tất cả các điều khoản trên',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
               ),
-              _buildCheckbox(
-                value: _ack.overfundPolicyAccepted,
-                label: 'Tôi đồng ý với chính sách xử lý dư quỹ',
-                enabled: _hasScrolledToEnd,
-                onChanged: (v) {
-                  setState(() => _ack.overfundPolicyAccepted = v ?? false);
-                  _validateAndNotify();
-                },
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              activeColor: _orangeAccent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
               ),
-              _buildCheckbox(
-                value: _ack.transparencyAccepted,
-                label: 'Tôi cam kết minh bạch tài chính',
-                enabled: _hasScrolledToEnd,
-                onChanged: (v) {
-                  setState(() => _ack.transparencyAccepted = v ?? false);
-                  _validateAndNotify();
-                },
-              ),
-              _buildCheckbox(
-                value: _ack.legalLiabilityAccepted,
-                label: 'Tôi chịu trách nhiệm pháp lý về chiến dịch',
-                enabled: _hasScrolledToEnd,
-                onChanged: (v) {
-                  setState(() => _ack.legalLiabilityAccepted = v ?? false);
-                  _validateAndNotify();
-                },
-              ),
-            ],
+            ),
           ),
         ),
+
+        // Hint khi chưa scroll hết
+        if (!_hasScrolledToEnd)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 36),
+            child: Text(
+              'Bạn cần đọc hết điều khoản trước khi đồng ý',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.amber.shade700,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
         const SizedBox(height: 8),
       ],
     );
@@ -286,29 +330,6 @@ class _Step4TermsState extends State<Step4Terms>
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildCheckbox({
-    required bool value,
-    required String label,
-    required bool enabled,
-    required ValueChanged<bool?> onChanged,
-  }) {
-    return Opacity(
-      opacity: enabled ? 1.0 : 0.5,
-      child: CheckboxListTile(
-        value: value,
-        onChanged: enabled ? onChanged : null,
-        title: Text(
-          label,
-          style: const TextStyle(fontSize: 14),
-        ),
-        controlAffinity: ListTileControlAffinity.leading,
-        contentPadding: EdgeInsets.zero,
-        dense: true,
-        activeColor: Colors.green.shade600,
-      ),
     );
   }
 }

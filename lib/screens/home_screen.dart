@@ -530,7 +530,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return FloatingActionButton.extended(
       onPressed: () {
-        if (user.kycStatus?.toUpperCase() == 'APPROVED') {
+        if (user.kycVerified) {
           Navigator.pushNamed(context, '/new-campaign');
           return;
         }

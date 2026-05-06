@@ -133,6 +133,7 @@ class _NewCampaignScreenState extends State<NewCampaignScreen> {
                 Step5Review(
                   campaignState: _campaignState,
                   onValidChanged: _setCanProceed,
+                  onGoToStep: _goToStep,
                 ),
               ],
             ),

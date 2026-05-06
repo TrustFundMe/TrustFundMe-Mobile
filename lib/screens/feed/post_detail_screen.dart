@@ -7,10 +7,14 @@ import '../../core/api/campaign_service.dart';
 import '../../core/api/expenditure_service.dart';
 import '../../core/api/feed_service.dart';
 import '../../core/api/media_service.dart';
+import '../../core/api/api_service.dart';
 import '../../core/models/feed_post_model.dart';
 import '../../core/models/feed_comment_model.dart';
 import '../../core/models/feed_post_media_model.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../widgets/flags/flag_reason_sheet.dart';
+import '../../core/utils/flag_error_resolver.dart';
+import '../../core/utils/flag_duplicate_guard.dart';
 import '../../widgets/safe_network_avatar.dart';
 import '../expenditure_detail_screen.dart';
 
@@ -54,6 +58,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final MediaService _mediaSvc = MediaService();
   final ExpenditureService _expenditureSvc = ExpenditureService();
   final CampaignService _campaignSvc = CampaignService();
+  final ApiService _api = ApiService();
 
   // ─── State ─────────────────────────────────────────────────────────────────
   FeedPostModel? _post;
@@ -67,6 +72,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   Map<String, dynamic>? _expenditureData;
   String? _campaignTitle;
   bool _loadingEvidence = false;
+  bool _flagged = false;
 
   final TextEditingController _commentCtrl = TextEditingController();
   final ScrollController _scrollCtrl = ScrollController();
@@ -95,13 +101,20 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     return tt == 'EXPENDITURE' && tn.startsWith('evidence');
   }
 
+  /// Extract planName từ targetName pipe format: "evidence|Đợt 1: Mua sắm..."
+  /// - Không có pipe → null
+  /// - Có pipe nhưng suffix rỗng hoặc chỉ toàn số (ID) → null
+  /// - Có pipe + suffix là tên đợt → trả suffix
   static String? _extractPlanName(String? raw) {
     final String t = (raw ?? '').trim();
-    if (t.contains('|')) {
-      final String planName = t.split('|').sublist(1).join('|').trim();
-      if (planName.isNotEmpty) return planName;
-    }
-    return null;
+    if (!t.contains('|')) return null;
+    final List<String> parts = t.split('|');
+    if (parts.length < 2) return null;
+    final String suffix = parts.sublist(1).join('|').trim();
+    if (suffix.isEmpty) return null;
+    // Nếu suffix chỉ toàn số → đó là ID, không phải tên đợt
+    if (RegExp(r'^\d+$').hasMatch(suffix)) return null;
+    return suffix;
   }
 
   // ─── Data ──────────────────────────────────────────────────────────────────
@@ -115,6 +128,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           _post = FeedPostModel.fromJson(res.data as Map<String, dynamic>);
           _loadingPost = false;
         });
+        await _loadFlagStatus();
         // Fetch evidence data after post loaded
         if (_post != null && _isEvidence(_post!)) {
           _loadEvidenceData();
@@ -122,6 +136,62 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       }
     } catch (_) {
       if (mounted) setState(() => _loadingPost = false);
+    }
+  }
+
+  Future<void> _loadFlagStatus() async {
+    if (_post == null) return;
+    try {
+      final res = await _api.getMyFlags(page: 0, size: 100);
+      final dynamic data = res.data;
+      List<dynamic> content = <dynamic>[];
+      if (data is Map<String, dynamic> && data['content'] is List) {
+        content = data['content'] as List<dynamic>;
+      } else if (data is List<dynamic>) {
+        content = data;
+      }
+      final bool flagged = content.any((f) =>
+          f is Map<String, dynamic> &&
+          _parseInt(f['postId']) == _post!.id);
+      if (mounted) setState(() => _flagged = flagged);
+    } catch (_) {}
+  }
+
+  Future<void> _flagPost() async {
+    if (_post == null) return;
+    final reason = await showCampaignFlagReasonBottomSheet(context);
+    if (reason == null || reason.isEmpty || !mounted) return;
+
+    final dup = await hasSubmittedFlag(_api, postId: _post!.id);
+    if (dup) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: Color(0xFFEF4444),
+            content: Text('Bạn đã tố cáo bài viết này rồi.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      await _api.submitFlag(postId: _post!.id, reason: reason);
+      if (mounted) {
+        setState(() => _flagged = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã gửi báo cáo. Cảm ơn bạn.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFFEF4444),
+            content: Text(resolveFlagSubmitError(e)),
+          ),
+        );
+      }
     }
   }
 
@@ -377,16 +447,14 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         .trim();
   }
 
-  /// Nếu targetName bắt đầu bằng "evidence" → hiện "Minh chứng" thay vì số raw.
+  /// Nếu targetName bắt đầu bằng "evidence" → hiện "Minh chứng" hoặc "Minh chứng cho {planName}".
+  /// Logic: dùng _extractPlanName() để phân biệt evidence có pipe vs không có pipe.
   static String _displayTargetName(String raw) {
     final String t = raw.trim();
     if (t.isEmpty) return '';
     if (RegExp(r'^evidence', caseSensitive: false).hasMatch(t)) {
-      // Try to extract plan name from pipe format
-      if (t.contains('|')) {
-        final String planName = t.split('|').sublist(1).join('|').trim();
-        if (planName.isNotEmpty) return 'Minh chứng cho $planName';
-      }
+      final String? planName = _extractPlanName(t);
+      if (planName != null) return 'Minh chứng cho $planName';
       return 'Minh chứng';
     }
     return t;
@@ -409,6 +477,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
           'Chi tiết bài viết',
           style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17),
         ),
+        actions: [
+          IconButton(
+            tooltip: _flagged ? 'Đã tố cáo' : 'Tố cáo bài viết',
+            onPressed: _flagPost,
+            icon: Icon(
+              _flagged ? Icons.flag : Icons.flag_outlined,
+              color: _flagged ? const Color(0xFFEF4444) : null,
+            ),
+          ),
+        ],
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: _text,

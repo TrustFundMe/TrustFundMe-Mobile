@@ -18,6 +18,7 @@ import 'donation/vietqr_screen.dart';
 import 'feed_post_detail_screen.dart';
 import 'campaign_posts_screen.dart';
 import 'expenditure_detail_screen.dart';
+import 'chat_screen.dart';
 import '../widgets/flags/flag_reason_sheet.dart';
 import '../widgets/safe_network_avatar.dart';
 import '../core/utils/flag_error_resolver.dart';
@@ -186,6 +187,11 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       final dynamic cRaw = _unwrap(r0);
       if (cRaw is Map<String, dynamic>) {
         _campaign = CampaignModel.fromJson(cRaw);
+        final dynamic followerRaw =
+            cRaw['followerCount'] ?? cRaw['followersCount'] ?? cRaw['followCount'];
+        if (followerRaw is num) {
+          _followerCount = followerRaw.toInt();
+        }
       } else {
         // If critical data is missing or in wrong format, throw to show error state
         throw Exception('Invalid campaign data format');
@@ -356,6 +362,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       final results = await Future.wait<dynamic>([
         _api.isFollowingCampaign(_campaign.id).then<dynamic>((r) => r).catchError((_) => null),
         _api.getMyFlags(page: 0, size: 100).then<dynamic>((r) => r).catchError((_) => null),
+        _api.getCampaignFollowerCount(_campaign.id).then<dynamic>((r) => r).catchError((_) => null),
       ]);
 
       if (!mounted) return;
@@ -382,6 +389,15 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         // Some backends return flags as a direct list
         _flagged = flagRaw.any((f) =>
             f is Map<String, dynamic> && f['campaignId'] == _campaign.id);
+      }
+
+      // Follower count
+      final dynamic s2 = results[2];
+      final dynamic countRaw = s2 is Response ? s2.data : null;
+      if (countRaw is num) {
+        _followerCount = countRaw.toInt();
+      } else if (countRaw is Map && countRaw['count'] is num) {
+        _followerCount = (countRaw['count'] as num).toInt();
       }
 
       if (mounted) setState(() {});
@@ -554,7 +570,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       if (mounted) {
         setState(() {
           _followed = !_followed;
-          _followerCount += _followed ? 1 : -1;
+          _followerCount = (_followerCount + (_followed ? 1 : -1)).clamp(0, 1 << 30);
         });
       }
     } catch (_) {}
@@ -595,6 +611,27 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         );
       }
     }
+  }
+
+  Future<void> _openCampaignChat() async {
+    final auth = context.read<AuthProvider>();
+    if (auth.user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng đăng nhập để nhắn tin.')),
+      );
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          campaignId: _campaign.id,
+          campaignTitle: _campaign.title,
+          staffId: _campaign.assignedStaffId,
+          staffName: _campaign.assignedStaffName,
+        ),
+      ),
+    );
   }
 
   Future<void> _handleDirectDonate() async {
@@ -1177,10 +1214,16 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         _actionChip(
           icon: _followed ? Icons.person_remove : Icons.person_add_alt_1,
           label: _followed
-              ? 'Đang theo dõi${_followerCount > 0 ? ' ($_followerCount)' : ''}'
-              : 'Theo dõi${_followerCount > 0 ? ' ($_followerCount)' : ''}',
+              ? 'Đang theo dõi ($_followerCount)'
+              : 'Theo dõi ($_followerCount)',
           active: _followed,
           onTap: _toggleFollow,
+        ),
+        _actionChip(
+          icon: Icons.chat_bubble_outline,
+          label: 'Nhắn tin',
+          active: false,
+          onTap: _openCampaignChat,
         ),
         _actionChip(
           icon: _flagged ? Icons.flag : Icons.flag_outlined,
@@ -1285,239 +1328,371 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     );
   }
 
-  // ─── Donate Card (inline) ───
+  // ─── Donate Card (inline) — redesigned to match web layout ───
   Widget _buildDonateCard(int raised, int goal, int pct, int donorCount) {
+    // ── Color constants matching web design ──
+    const Color primaryOrange = Color(0xFFEA580C);   // orange-600
+    const Color textPrimary = Color(0xFF1E3A5F);     // dark blue
+    const Color textSecondary = Color(0xFF6B7280);   // gray-500
+    const Color borderColor = Color(0xFFE5E7EB);     // gray-200
+    const Color successGreen = Color(0xFF16A34A);
+
     final bool hasGoal = goal > 0;
-    final int shortage = goal - raised;
-    // Vòng tiến độ: đầy khi đạt/vượt mục tiêu; màu xanh khi đã đủ để tránh cảm giác “vẫn chưa xong”.
-    final double ringRatio = hasGoal
-        ? (raised / goal).clamp(0.0, 1.0)
-        : (pct / 100).clamp(0.0, 1.0);
     final int percentLabel = hasGoal
         ? ((raised * 100) ~/ goal).clamp(0, 999)
         : pct.clamp(0, 999);
-    final Color ringColor =
-        hasGoal && raised >= goal ? _green : _brand;
+    final double barRatio = hasGoal
+        ? (raised / goal).clamp(0.0, 1.0)
+        : (pct / 100).clamp(0.0, 1.0);
 
-    String progressSubline() {
-      if (!hasGoal) return 'Đang cập nhật số liệu mục tiêu';
-      if (raised >= goal) return 'Đã đạt mục tiêu';
-      return 'Còn ${_fmtMoney(shortage)} đ';
+    // ── Campaign end date from milestones ──
+    DateTime? campaignEndDate;
+    for (final plan in _plans) {
+      if (plan.endDate != null && plan.endDate!.isNotEmpty) {
+        final dt = DateTime.tryParse(plan.endDate!);
+        if (dt != null && (campaignEndDate == null || dt.isAfter(campaignEndDate))) {
+          campaignEndDate = dt;
+        }
+      }
+    }
+    final int? remainingDays = campaignEndDate != null
+        ? (() {
+            final diffMs = campaignEndDate!.difference(DateTime.now()).inMilliseconds;
+            return diffMs <= 0 ? 0 : (diffMs / (1000 * 60 * 60 * 24)).ceil();
+          })()
+        : null;
+    final bool isExpired = remainingDays != null && remainingDays <= 0;
+
+    // ── Campaign status check ──
+    final String campaignStatus = (_campaign.status ?? '').toUpperCase();
+
+    // Check if there's an approved milestone currently in date range
+    bool hasApprovedMilestoneInRange() {
+      final now = DateTime.now();
+      for (final plan in _plans) {
+        final s = (plan.status ?? '').toUpperCase();
+        if (s == 'APPROVED') {
+          final start = plan.startDate != null ? DateTime.tryParse(plan.startDate!) : null;
+          final end = plan.endDate != null ? DateTime.tryParse(plan.endDate!) : null;
+          if (start != null && end != null && now.isAfter(start) && now.isBefore(end.add(const Duration(days: 1)))) {
+            return true;
+          }
+          // If no date constraints, consider it valid
+          if (start == null && end == null) return true;
+        }
+      }
+      return _plans.isEmpty; // No milestones = ok to donate
     }
 
-    String remainingCaption() {
-      if (!hasGoal) {
-        return 'Mục tiêu chưa được cấu hình — bạn vẫn có thể quyên góp nếu muốn.';
-      }
-      if (raised < goal) {
-        return 'Còn thiếu: ${_fmtMoney(shortage)} VNĐ';
-      }
-      if (raised == goal) {
-        return 'Đã đủ mục tiêu — bạn vẫn có thể tiếp tục quyên góp để đồng hành.';
-      }
-      return 'Đã vượt mục tiêu (+${_fmtMoney(raised - goal)} đ). Cảm ơn cộng đồng đã ủng hộ thêm so với dự kiến.';
+    // ── Status overlay cards ──
+    if (campaignStatus == 'CLOSED') {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: borderColor),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Icon(Icons.check_circle_outline, size: 48, color: successGreen),
+            const SizedBox(height: 12),
+            const Text(
+              'Chiến dịch đã kết thúc',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Cảm ơn tất cả mọi người đã ủng hộ chiến dịch này.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: textSecondary),
+            ),
+            const SizedBox(height: 16),
+            // Still show progress summary
+            _buildProgressSummary(raised, goal, percentLabel, barRatio, donorCount,
+                textPrimary, textSecondary, primaryOrange, borderColor, successGreen),
+            // Recent donors
+            const SizedBox(height: 12),
+            Divider(color: borderColor),
+            const SizedBox(height: 8),
+            _buildRecentDonorsSection(textPrimary, textSecondary, borderColor),
+          ],
+        ),
+      );
     }
 
-    String ratioLine() {
-      if (!hasGoal) return '${_fmtMoney(raised)} VNĐ';
-      return '${_fmtMoney(raised)} / ${_fmtMoney(goal)} VNĐ';
+    if (campaignStatus == 'DISABLED') {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: borderColor),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            const Icon(Icons.pause_circle_outline, size: 48, color: Color(0xFFEA580C)),
+            const SizedBox(height: 12),
+            const Text(
+              'Chiến dịch tạm dừng',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _campaign.rejectionReason ?? 'Chiến dịch đang tạm dừng nhận quyên góp.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: textSecondary),
+            ),
+            const SizedBox(height: 16),
+            _buildProgressSummary(raised, goal, percentLabel, barRatio, donorCount,
+                textPrimary, textSecondary, primaryOrange, borderColor, successGreen),
+            const SizedBox(height: 12),
+            Divider(color: borderColor),
+            const SizedBox(height: 8),
+            _buildRecentDonorsSection(textPrimary, textSecondary, borderColor),
+          ],
+        ),
+      );
     }
 
+    if (_plans.isNotEmpty && !hasApprovedMilestoneInRange()) {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: borderColor),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            const Icon(Icons.hourglass_empty, size: 48, color: Color(0xFFEA580C)),
+            const SizedBox(height: 12),
+            const Text(
+              'Tạm dừng nhận quyên góp',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Hiện tại không có đợt chi tiêu nào được duyệt trong khoảng thời gian này.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: textSecondary),
+            ),
+            const SizedBox(height: 16),
+            _buildProgressSummary(raised, goal, percentLabel, barRatio, donorCount,
+                textPrimary, textSecondary, primaryOrange, borderColor, successGreen),
+            const SizedBox(height: 12),
+            Divider(color: borderColor),
+            const SizedBox(height: 8),
+            _buildRecentDonorsSection(textPrimary, textSecondary, borderColor),
+          ],
+        ),
+      );
+    }
+
+    // ── Main donation card (active campaign) ──
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0x1E0F172A)),
+        border: Border.all(color: borderColor),
       ),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Circular progress + label
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0x1A0F172A)),
-            ),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 72,
-                  height: 72,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      CircularProgressIndicator(
-                        value: ringRatio,
-                        strokeWidth: 7,
-                        backgroundColor: Colors.black.withOpacity(0.1),
-                        color: ringColor,
-                        strokeCap: StrokeCap.round,
-                      ),
-                      Text(
-                        '$percentLabel%',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                          color: _dark,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Tiến trình gây quỹ',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        progressSubline(),
-                        style: const TextStyle(fontSize: 12, color: _muted),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // Goal + stats
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0x1A0F172A)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'MỤC TIÊU CHIẾN DỊCH',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: _muted,
-                    letterSpacing: 1,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${_fmtMoney(goal)} VNĐ',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: _dark,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  ratioLine(),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: hasGoal && raised >= goal ? _green : _brand,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
+          // ── 1. Header row: Goal + Remaining days ──
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Left: campaign goal
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: _statBox(
-                        'Đã quyên góp',
-                        '${_fmtMoney(raised)} VNĐ',
+                    Text(
+                      'Mục tiêu chiến dịch',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: textSecondary,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _statBox(
-                          'Lượt ủng hộ', donorCount.toString()),
+                    const SizedBox(height: 4),
+                    Text(
+                      hasGoal ? '${_fmtMoney(goal)} VNĐ' : 'Chưa đặt',
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: textPrimary,
+                      ),
                     ),
                   ],
                 ),
-              ],
-            ),
+              ),
+              // Right: remaining days
+              if (remainingDays != null)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      'Thời gian còn lại',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isExpired ? 'Đã hết hạn' : '$remainingDays ngày',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: isExpired ? _red : primaryOrange,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 16),
 
-          // Điều khoản trước CTA — tránh nút xám mà người dùng không hiểu vì sao.
-          Divider(color: const Color(0x1A0F172A)),
-          _checkRow(
-            value: _isAnonymous,
-            onChanged: (v) => setState(() => _isAnonymous = v ?? false),
-            label: 'Quyên góp ẩn danh',
+          // ── 2. Progress section ──
+          // "Đã đạt được X VNĐ" + "Y%"
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(
+                  'Đã đạt được ${_fmtMoney(raised)} VNĐ',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: textPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                '$percentLabel%',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: hasGoal && raised >= goal ? successGreen : primaryOrange,
+                ),
+              ),
+            ],
           ),
-          _checkRow(
-            value: _isAgreed,
-            onChanged: (v) => setState(() => _isAgreed = v ?? false),
-            label: 'Tôi đồng ý với điều khoản sử dụng',
-            richLabel: true,
-          ),
-          const SizedBox(height: 10),
-
-          // Quick amounts
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: _quickAmounts.map((v) {
-              final selected = _donateAmount == v;
-              return InkWell(
-                borderRadius: BorderRadius.circular(99),
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  setState(() => _donateAmount = v);
-                },
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(99),
-                    color: selected
-                        ? _brand.withOpacity(0.1)
-                        : Colors.white,
-                    border: Border.all(
-                      color: selected
-                          ? _brand.withOpacity(0.4)
-                          : const Color(0xFFE2E8F0),
+          const SizedBox(height: 8),
+          // Linear progress bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(5),
+            child: SizedBox(
+              height: 10,
+              child: Stack(
+                children: [
+                  // Background
+                  Container(
+                    width: double.infinity,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFE5E7EB),
                     ),
                   ),
-                  child: Text(
-                    '${v ~/ 1000}k',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                      color: selected
-                          ? const Color(0xFFA3471A)
-                          : _textDark,
+                  // Fill with gradient
+                  FractionallySizedBox(
+                    widthFactor: barRatio,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: hasGoal && raised >= goal
+                              ? [successGreen, const Color(0xFF15803D)]
+                              : [const Color(0xFFF97316), primaryOrange],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          // Donor count
+          Text(
+            'Lượt ủng hộ: $donorCount',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: textSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // ── 3. Quick amount buttons ──
+          Row(
+            children: _quickAmounts.map((v) {
+              final selected = _donateAmount == v;
+              return Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    right: v == _quickAmounts.last ? 0 : 8,
+                  ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _donateAmount = v);
+                    },
+                    child: Container(
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: selected
+                            ? primaryOrange.withOpacity(0.1)
+                            : Colors.white,
+                        border: Border.all(
+                          color: selected
+                              ? primaryOrange
+                              : borderColor,
+                          width: selected ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Text(
+                        '${v ~/ 1000}k',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          color: selected ? primaryOrange : textPrimary,
+                        ),
+                      ),
                     ),
                   ),
                 ),
               );
             }).toList(),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
 
-          // Amount input + Donate button
+          // ── 4. Amount input + Donate button ──
           Row(
             children: [
               Expanded(
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(99),
-                    border:
-                        Border.all(color: const Color(0xFFE2E8F0)),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: borderColor),
                   ),
                   child: Row(
                     children: [
@@ -1527,8 +1702,8 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                           textAlign: TextAlign.right,
                           style: const TextStyle(
                             fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                            color: _dark,
+                            fontSize: 15,
+                            color: textPrimary,
                           ),
                           decoration: const InputDecoration(
                             border: InputBorder.none,
@@ -1540,8 +1715,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                           )..selection = TextSelection.collapsed(
                               offset: _fmtMoney(_donateAmount).length),
                           onChanged: (val) {
-                            final digits =
-                                val.replaceAll(RegExp(r'[^0-9]'), '');
+                            final digits = val.replaceAll(RegExp(r'[^0-9]'), '');
                             setState(() {
                               _donateAmount = int.tryParse(digits) ?? 0;
                             });
@@ -1552,117 +1726,220 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
                       Text(
                         'VNĐ',
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: _muted,
+                          color: textSecondary,
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed:
-                    (!_isAgreed || _donateAmount < 10000 || _donateLoading)
+              const SizedBox(width: 10),
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  gradient: (!_isAgreed || _donateAmount < 10000 || _donateLoading)
+                      ? null
+                      : const LinearGradient(
+                          colors: [Color(0xFFF97316), Color(0xFFEA580C)],
+                        ),
+                  color: (!_isAgreed || _donateAmount < 10000 || _donateLoading)
+                      ? const Color(0xFFCBD5E1)
+                      : null,
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: (!_isAgreed || _donateAmount < 10000 || _donateLoading)
                         ? null
                         : _handleDirectDonate,
-                style: FilledButton.styleFrom(
-                  backgroundColor: _brand,
-                  disabledBackgroundColor: const Color(0xFFCBD5E1),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(99),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+                      child: _donateLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Quyên góp',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 14,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                SizedBox(width: 4),
+                                Icon(Icons.arrow_forward, size: 16, color: Colors.white),
+                              ],
+                            ),
+                    ),
                   ),
                 ),
-                child: _donateLoading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Quyên góp',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13,
-                            ),
-                          ),
-                          SizedBox(width: 4),
-                          Icon(Icons.arrow_forward, size: 16),
-                        ],
-                      ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            remainingCaption(),
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: hasGoal && raised >= goal ? _green : _muted,
-              height: 1.35,
-            ),
+          const SizedBox(height: 12),
+
+          // ── 5. Checkboxes ──
+          _checkRow(
+            value: _isAnonymous,
+            onChanged: (v) => setState(() => _isAnonymous = v ?? false),
+            label: 'Quyên góp ẩn danh',
           ),
+          _checkRow(
+            value: _isAgreed,
+            onChanged: (v) => setState(() => _isAgreed = v ?? false),
+            label: 'Tôi đồng ý với điều khoản sử dụng',
+            richLabel: true,
+          ),
+
           if (!_isAgreed && _donateAmount >= 10000)
             Padding(
-              padding: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.only(top: 4, bottom: 4),
               child: Text(
-                'Vui lòng đánh dấu đồng ý điều khoản phía trên để bật nút quyên góp.',
+                'Vui lòng đánh dấu đồng ý điều khoản để bật nút quyên góp.',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  color: _brand.withOpacity(0.95),
+                  color: primaryOrange.withOpacity(0.95),
                 ),
               ),
             ),
 
-          // Recent donors
+          // ── Recent donors ──
           const SizedBox(height: 8),
-          Divider(color: const Color(0x1A0F172A)),
+          Divider(color: borderColor),
           const SizedBox(height: 8),
-          const Text(
-            'Người vừa ủng hộ',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              color: _dark,
-            ),
-          ),
-          const SizedBox(height: 10),
-          if (_donors.isEmpty)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: const Color(0x1A0F172A),
-                  style: BorderStyle.solid,
-                ),
-              ),
-              child: const Text(
-                'Chưa có người ủng hộ nào',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: _muted,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            )
-          else
-            ..._donors.map(_buildDonorRow),
+          _buildRecentDonorsSection(textPrimary, textSecondary, borderColor),
         ],
       ),
+    );
+  }
+
+  // ── Helper: Progress summary (used in CLOSED/DISABLED/PAUSED cards) ──
+  Widget _buildProgressSummary(
+    int raised, int goal, int percentLabel, double barRatio, int donorCount,
+    Color textPrimary, Color textSecondary, Color primaryOrange,
+    Color borderColor, Color successGreen,
+  ) {
+    final bool hasGoal = goal > 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Flexible(
+              child: Text(
+                'Đã đạt được ${_fmtMoney(raised)} VNĐ',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: textPrimary,
+                ),
+              ),
+            ),
+            Text(
+              '$percentLabel%',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: hasGoal && raised >= goal ? successGreen : primaryOrange,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(5),
+          child: SizedBox(
+            height: 10,
+            child: Stack(
+              children: [
+                Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(color: Color(0xFFE5E7EB)),
+                ),
+                FractionallySizedBox(
+                  widthFactor: barRatio,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: hasGoal && raised >= goal
+                            ? [successGreen, const Color(0xFF15803D)]
+                            : [const Color(0xFFF97316), primaryOrange],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              hasGoal ? 'Mục tiêu: ${_fmtMoney(goal)} VNĐ' : '',
+              style: TextStyle(fontSize: 12, color: textSecondary),
+            ),
+            Text(
+              'Lượt ủng hộ: $donorCount',
+              style: TextStyle(fontSize: 12, color: textSecondary),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ── Helper: Recent donors section ──
+  Widget _buildRecentDonorsSection(
+    Color textPrimary, Color textSecondary, Color borderColor,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Người vừa ủng hộ',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            color: textPrimary,
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (_donors.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: borderColor),
+            ),
+            child: Text(
+              'Chưa có người ủng hộ nào',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: textSecondary,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          )
+        else
+          ..._donors.map(_buildDonorRow),
+      ],
     );
   }
 
@@ -2293,18 +2570,40 @@ class _MilestoneItemState extends State<_MilestoneItem> {
                             color: accent,
                           ),
                           const Spacer(),
-                          TextButton(
-                            onPressed: widget.onOpenDetail,
-                            style: TextButton.styleFrom(
-                              visualDensity: VisualDensity.compact,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              foregroundColor: _brand,
-                            ),
-                            child: const Text(
-                              'Mở chi tiết',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
+                          GestureDetector(
+                            onTap: widget.onOpenDetail,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFFF97316), Color(0xFFEA580C)],
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: _brand.withOpacity(0.25),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.receipt_long, size: 13, color: Colors.white),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Xem chi tiết hồ sơ',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.white,
+                                      letterSpacing: 0.3,
+                                    ),
+                                  ),
+                                  SizedBox(width: 2),
+                                  Icon(Icons.arrow_forward_ios, size: 9, color: Colors.white),
+                                ],
                               ),
                             ),
                           ),

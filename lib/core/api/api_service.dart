@@ -157,6 +157,14 @@ class ApiService extends BaseService {
   Future<Response<dynamic>> isFollowingCampaign(int campaignId) =>
       _campaign.isFollowingCampaign(campaignId);
 
+  @Deprecated('Use CampaignService.getFollowerCount() instead')
+  Future<Response<dynamic>> getCampaignFollowerCount(int campaignId) =>
+      _campaign.getFollowerCount(campaignId);
+
+  @Deprecated('Use CampaignService.getFollowers() instead')
+  Future<Response<dynamic>> getCampaignFollowers(int campaignId) =>
+      _campaign.getFollowers(campaignId);
+
   @Deprecated('Use CampaignService.getActiveGoalByCampaign() instead')
   Future<Response<dynamic>> getActiveGoalByCampaign(int campaignId) =>
       _campaign.getActiveGoalByCampaign(campaignId);

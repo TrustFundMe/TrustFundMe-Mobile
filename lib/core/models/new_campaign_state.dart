@@ -47,6 +47,8 @@ class NewCampaignState {
       'thankMessage': campaignCore.thankMessage,
       'coverImageUrl': campaignCore.coverImageUrl,
       'campaignImages': campaignCore.campaignImages,
+      'mediaIds': campaignCore.mediaIds,
+      'coverMediaId': campaignCore.coverMediaId,
       'milestones': milestones.map((m) => m.toJson()).toList(),
       'bankInfo': bankInfo.toJson(),
     };
@@ -58,15 +60,21 @@ class CampaignCore {
   String title;
   String objective;
   int targetAmount;
-  String startDate; // yyyy-MM-dd
-  String endDate;
+  String startDate; // yyyy-MM-dd — giữ trong model, tính từ milestones
+  String endDate;   // giữ trong model, tính từ milestones
   String category;
   int? categoryId;
-  String region;
-  String beneficiaryType;
+  String region;          // giữ trong model, bỏ UI (web không có)
+  String beneficiaryType; // giữ trong model, bỏ UI (web không có)
   String thankMessage;
   String? coverImageUrl;
   List<String> campaignImages;
+
+  /// Media IDs đã upload (multi-image upload giống web).
+  List<int> mediaIds;
+
+  /// Media ID được chọn làm ảnh bìa (cover).
+  int? coverMediaId;
 
   CampaignCore({
     this.title = '',
@@ -81,20 +89,20 @@ class CampaignCore {
     this.thankMessage = '',
     this.coverImageUrl,
     List<String>? campaignImages,
-  }) : campaignImages = campaignImages ?? [];
+    List<int>? mediaIds,
+    this.coverMediaId,
+  })  : campaignImages = campaignImages ?? [],
+        mediaIds = mediaIds ?? [];
 
-  /// Validate Step 2.
+  /// Validate Step 2 — đồng bộ với web:
+  /// required: title, categoryId, objective, thankMessage, ít nhất 1 ảnh.
   List<String> validate() {
     final errors = <String>[];
     if (title.trim().isEmpty) errors.add('Tên chiến dịch không được để trống');
-    if (title.trim().length < 10) errors.add('Tên chiến dịch tối thiểu 10 ký tự');
+    if (categoryId == null) errors.add('Vui lòng chọn danh mục');
     if (objective.trim().isEmpty) errors.add('Mục tiêu gây quỹ không được để trống');
-    if (objective.trim().length < 20) errors.add('Mô tả mục tiêu tối thiểu 20 ký tự');
-    if (category.isEmpty) errors.add('Vui lòng chọn danh mục');
-    if (region.isEmpty) errors.add('Vui lòng chọn khu vực');
-    if (beneficiaryType.isEmpty) errors.add('Vui lòng chọn đối tượng thụ hưởng');
-    if (startDate.isEmpty) errors.add('Vui lòng chọn ngày bắt đầu');
-    if (endDate.isEmpty) errors.add('Vui lòng chọn ngày kết thúc');
+    if (thankMessage.trim().isEmpty) errors.add('Lời cảm ơn không được để trống');
+    if (mediaIds.isEmpty) errors.add('Vui lòng tải lên ít nhất 1 ảnh');
     return errors;
   }
 
@@ -112,6 +120,8 @@ class CampaignCore {
       'thankMessage': thankMessage,
       'coverImageUrl': coverImageUrl,
       'campaignImages': campaignImages,
+      'mediaIds': mediaIds,
+      'coverMediaId': coverMediaId,
     };
   }
 }
@@ -150,13 +160,32 @@ class Milestone {
     return total;
   }
 
-  /// Validate milestone.
+  /// Validate milestone (bao gồm auto-chain date validation).
   List<String> validate() {
     final errors = <String>[];
     if (title.trim().isEmpty) errors.add('Tên đợt giải ngân không được để trống');
     if (startDate.isEmpty) errors.add('Vui lòng chọn ngày bắt đầu đợt');
     if (endDate.isEmpty) errors.add('Vui lòng chọn ngày kết thúc đợt');
     if (evidenceDueAt.isEmpty) errors.add('Vui lòng chọn hạn nộp minh chứng');
+
+    // Date order validation: endDate > startDate
+    if (startDate.isNotEmpty && endDate.isNotEmpty) {
+      final start = DateTime.tryParse(startDate);
+      final end = DateTime.tryParse(endDate);
+      if (start != null && end != null && !end.isAfter(start)) {
+        errors.add('Ngày kết thúc phải sau ngày bắt đầu');
+      }
+    }
+
+    // Date order validation: evidenceDueAt > endDate
+    if (endDate.isNotEmpty && evidenceDueAt.isNotEmpty) {
+      final end = DateTime.tryParse(endDate);
+      final evidence = DateTime.tryParse(evidenceDueAt);
+      if (end != null && evidence != null && !evidence.isAfter(end)) {
+        errors.add('Hạn nộp minh chứng phải sau ngày kết thúc');
+      }
+    }
+
     if (categories.isEmpty) errors.add('Cần ít nhất 1 danh mục chi tiêu');
     for (int i = 0; i < categories.length; i++) {
       final catErrors = categories[i].validate();
@@ -282,6 +311,7 @@ class BankInfo {
   String accountNumber;
   String bankName;
   String branch;
+  String webhookKey;
 
   BankInfo({
     this.bankCode = '',
@@ -289,13 +319,41 @@ class BankInfo {
     this.accountNumber = '',
     this.bankName = '',
     this.branch = '',
+    this.webhookKey = '',
   });
+
+  BankInfo copyWith({
+    String? bankCode,
+    String? accountHolderName,
+    String? accountNumber,
+    String? bankName,
+    String? branch,
+    String? webhookKey,
+  }) {
+    return BankInfo(
+      bankCode: bankCode ?? this.bankCode,
+      accountHolderName: accountHolderName ?? this.accountHolderName,
+      accountNumber: accountNumber ?? this.accountNumber,
+      bankName: bankName ?? this.bankName,
+      branch: branch ?? this.branch,
+      webhookKey: webhookKey ?? this.webhookKey,
+    );
+  }
 
   List<String> validate() {
     final errors = <String>[];
     if (bankCode.isEmpty) errors.add('Vui lòng chọn ngân hàng');
-    if (accountNumber.isEmpty) errors.add('Số tài khoản không được để trống');
-    if (accountHolderName.isEmpty) errors.add('Tên chủ tài khoản không được để trống');
+    if (accountNumber.isEmpty) {
+      errors.add('Số tài khoản không được để trống');
+    } else if (accountNumber.length < 6 || accountNumber.length > 50) {
+      errors.add('Số tài khoản phải từ 6-50 ký tự');
+    }
+    if (accountHolderName.isEmpty) {
+      errors.add('Tên chủ tài khoản không được để trống');
+    } else if (accountHolderName.length < 6 || accountHolderName.length > 255) {
+      errors.add('Tên chủ tài khoản phải từ 6-255 ký tự');
+    }
+    if (webhookKey.isEmpty) errors.add('Mã kết nối Casso không được để trống');
     return errors;
   }
 
@@ -306,7 +364,19 @@ class BankInfo {
       'accountNumber': accountNumber,
       'bankName': bankName,
       'branch': branch,
+      'webhookKey': webhookKey,
     };
+  }
+
+  factory BankInfo.fromJson(Map<String, dynamic> json) {
+    return BankInfo(
+      bankCode: json['bankCode'] as String? ?? '',
+      accountHolderName: json['accountHolderName'] as String? ?? '',
+      accountNumber: json['accountNumber'] as String? ?? '',
+      bankName: json['bankName'] as String? ?? '',
+      branch: json['branch'] as String? ?? '',
+      webhookKey: json['webhookKey'] as String? ?? '',
+    );
   }
 }
 

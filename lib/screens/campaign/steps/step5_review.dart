@@ -5,14 +5,19 @@ import '../../../core/models/new_campaign_state.dart';
 import '../../../core/utils/error_handler.dart';
 
 /// Step 5: Review & Submit — tóm tắt tất cả thông tin và gửi duyệt.
+/// Redesign: thêm bank summary, edit buttons, cập nhật color scheme giống web.
 class Step5Review extends StatefulWidget {
   final NewCampaignState campaignState;
   final ValueChanged<bool> onValidChanged;
+
+  /// Callback quay lại step cụ thể (0-indexed).
+  final ValueChanged<int>? onGoToStep;
 
   const Step5Review({
     super.key,
     required this.campaignState,
     required this.onValidChanged,
+    this.onGoToStep,
   });
 
   @override
@@ -27,6 +32,12 @@ class _Step5ReviewState extends State<Step5Review>
   bool _isSubmitting = false;
   String? _submitError;
   bool _submitted = false;
+
+  // ── Color scheme ────────────────────────────────────────────────
+  static const Color _checkGreen = Color(0xFF16A34A);
+  static const Color _errorRed = Color(0xFFEF4444);
+  static const Color _editOrange = Color(0xFFEA580C);
+  static const Color _headerBlue = Color(0xFF1E3A5F);
 
   @override
   bool get wantKeepAlive => true;
@@ -47,6 +58,7 @@ class _Step5ReviewState extends State<Step5Review>
     final core = _state.campaignCore;
     final milestones = _state.milestones;
     final ack = _state.acknowledgements;
+    final bank = _state.bankInfo;
 
     return [
       _CheckItem(
@@ -69,6 +81,10 @@ class _Step5ReviewState extends State<Step5Review>
       _CheckItem(
         label: 'Mục tiêu gây quỹ > 0',
         passed: _state.calculatedTargetAmount > 0,
+      ),
+      _CheckItem(
+        label: 'Tài khoản ngân hàng đã nhập',
+        passed: bank.validate().isEmpty,
       ),
       _CheckItem(
         label: 'Đã chấp nhận tất cả điều khoản',
@@ -154,6 +170,10 @@ class _Step5ReviewState extends State<Step5Review>
         _buildMilestonesSummary(theme),
         const SizedBox(height: 16),
 
+        // ── Bank Account Summary ──────────────────────────────────
+        _buildBankSummary(theme),
+        const SizedBox(height: 16),
+
         // ── Target Amount ─────────────────────────────────────────
         _buildTargetAmountCard(theme),
         const SizedBox(height: 16),
@@ -211,11 +231,51 @@ class _Step5ReviewState extends State<Step5Review>
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
-              textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              textStyle:
+                  const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ),
         ),
         const SizedBox(height: 32),
+      ],
+    );
+  }
+
+  // ── Section header với Edit button ──────────────────────────────
+  Widget _buildSectionHeader({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    int? editStepIndex,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, color: iconColor),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: _headerBlue,
+            ),
+          ),
+        ),
+        if (editStepIndex != null && widget.onGoToStep != null)
+          TextButton.icon(
+            onPressed: () => widget.onGoToStep!(editStepIndex),
+            icon: const Icon(Icons.edit_outlined, size: 16),
+            label: const Text('Sửa'),
+            style: TextButton.styleFrom(
+              foregroundColor: _editOrange,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              textStyle:
+                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
       ],
     );
   }
@@ -226,7 +286,8 @@ class _Step5ReviewState extends State<Step5Review>
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(
-          color: _allChecksPassed ? Colors.green.shade200 : Colors.orange.shade200,
+          color:
+              _allChecksPassed ? Colors.green.shade200 : Colors.orange.shade200,
         ),
       ),
       color: _allChecksPassed ? Colors.green.shade50 : Colors.orange.shade50,
@@ -261,11 +322,11 @@ class _Step5ReviewState extends State<Step5Review>
                   child: Row(
                     children: [
                       Icon(
-                        item.passed ? Icons.check_circle : Icons.radio_button_unchecked,
+                        item.passed
+                            ? Icons.check_circle
+                            : Icons.cancel_outlined,
                         size: 18,
-                        color: item.passed
-                            ? Colors.green.shade600
-                            : Colors.grey.shade400,
+                        color: item.passed ? _checkGreen : _errorRed,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -275,9 +336,10 @@ class _Step5ReviewState extends State<Step5Review>
                             fontSize: 14,
                             color: item.passed
                                 ? Colors.green.shade800
-                                : Colors.grey.shade600,
-                            decoration:
-                                item.passed ? TextDecoration.lineThrough : null,
+                                : Colors.red.shade700,
+                            decoration: item.passed
+                                ? TextDecoration.lineThrough
+                                : null,
                           ),
                         ),
                       ),
@@ -303,17 +365,11 @@ class _Step5ReviewState extends State<Step5Review>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.blue.shade600),
-                const SizedBox(width: 8),
-                Text(
-                  'Thông tin chiến dịch',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+            _buildSectionHeader(
+              icon: Icons.info_outline,
+              iconColor: Colors.blue.shade600,
+              title: 'Thông tin chiến dịch',
+              editStepIndex: 1, // Step 2: Campaign info
             ),
             const Divider(height: 20),
             _infoRow('Tên chiến dịch', core.title),
@@ -358,18 +414,11 @@ class _Step5ReviewState extends State<Step5Review>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(Icons.account_balance_wallet_outlined,
-                    color: Colors.orange.shade600),
-                const SizedBox(width: 8),
-                Text(
-                  'Đợt giải ngân (${_state.milestones.length})',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+            _buildSectionHeader(
+              icon: Icons.account_balance_wallet_outlined,
+              iconColor: Colors.orange.shade600,
+              title: 'Đợt giải ngân (${_state.milestones.length})',
+              editStepIndex: 2, // Step 3: Milestones
             ),
             const Divider(height: 20),
             ..._state.milestones.asMap().entries.map((entry) {
@@ -410,7 +459,8 @@ class _Step5ReviewState extends State<Step5Review>
                         children: [
                           Text(
                             ms.title,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w600),
                           ),
                           Text(
                             '$catCount danh mục · $itemCount hạng mục',
@@ -440,6 +490,73 @@ class _Step5ReviewState extends State<Step5Review>
                 ),
               );
             }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Bank Account Summary section — hiển thị thông tin ngân hàng.
+  Widget _buildBankSummary(ThemeData theme) {
+    final bank = _state.bankInfo;
+    final bankErrors = bank.validate();
+    final isValid = bankErrors.isEmpty;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+          color: isValid ? Colors.grey.shade200 : _errorRed.withOpacity(0.4),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSectionHeader(
+              icon: Icons.account_balance_outlined,
+              iconColor: Colors.teal.shade600,
+              title: 'Tài khoản ngân hàng',
+              editStepIndex: 0, // Step 1: KYC + Bank
+            ),
+            const Divider(height: 20),
+            if (!isValid) ...[
+              // Warning khi bank info thiếu
+              Container(
+                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _errorRed.withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded,
+                        color: _errorRed, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Thông tin ngân hàng chưa đầy đủ. Vui lòng quay lại bổ sung.',
+                        style: TextStyle(
+                          color: Colors.red.shade700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            _infoRow(
+              'Ngân hàng',
+              bank.bankName.isNotEmpty ? bank.bankName : bank.bankCode,
+            ),
+            _infoRow('Số tài khoản', bank.accountNumber),
+            _infoRow('Tên chủ TK', bank.accountHolderName),
+            _infoRow('Mã Casso', bank.webhookKey),
           ],
         ),
       ),
@@ -497,17 +614,11 @@ class _Step5ReviewState extends State<Step5Review>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(Icons.gavel_outlined, color: Colors.purple.shade600),
-                const SizedBox(width: 8),
-                Text(
-                  'Điều khoản',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+            _buildSectionHeader(
+              icon: Icons.gavel_outlined,
+              iconColor: Colors.purple.shade600,
+              title: 'Điều khoản',
+              editStepIndex: 3, // Step 4: Terms
             ),
             const Divider(height: 20),
             _checkRow('Điều khoản sử dụng', ack.termsAccepted),
@@ -567,7 +678,8 @@ class _Step5ReviewState extends State<Step5Review>
               label: const Text('Về trang chủ'),
               style: FilledButton.styleFrom(
                 backgroundColor: Colors.green.shade600,
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -581,7 +693,8 @@ class _Step5ReviewState extends State<Step5Review>
               icon: const Icon(Icons.list_alt),
               label: const Text('Xem chiến dịch của tôi'),
               style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -631,7 +744,7 @@ class _Step5ReviewState extends State<Step5Review>
           Icon(
             checked ? Icons.check_circle : Icons.cancel,
             size: 18,
-            color: checked ? Colors.green.shade600 : Colors.red.shade400,
+            color: checked ? _checkGreen : _errorRed,
           ),
           const SizedBox(width: 8),
           Text(

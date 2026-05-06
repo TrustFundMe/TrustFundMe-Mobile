@@ -7,6 +7,8 @@ import '../../../core/models/new_campaign_state.dart';
 ///
 /// UI: ExpansionTile cho mỗi đợt, nested cho categories/items.
 /// Tổng mục tiêu tự động tính = sum(quantity × price) tất cả items.
+///
+/// **Auto-chain dates**: Đợt 1 startDate tự do. Đợt N+1 startDate = Đợt N endDate.
 class Step3Milestones extends StatefulWidget {
   final NewCampaignState campaignState;
   final ValueChanged<bool> onValidChanged;
@@ -29,6 +31,15 @@ class _Step3MilestonesState extends State<Step3Milestones>
   List<Milestone> get _milestones => widget.campaignState.milestones;
 
   final _currencyFormat = NumberFormat('#,###', 'vi_VN');
+  final _dateFmt = DateFormat('yyyy-MM-dd');
+
+  // ── Color constants (matching design spec) ──────────────────────────
+  static const _lockedBg = Color(0xFFF3F4F6); // gray-100
+  static const _lockedText = Color(0xFF6B7280); // gray-500
+  static const _dateBorder = Color(0xFFD1D5DB); // gray-300
+  static const _dateFocus = Color(0xFFEA580C); // orange-600
+  static const _errorColor = Color(0xFFEF4444); // red-500
+  static const _targetBlue = Color(0xFF1E3A5F); // dark blue
 
   @override
   void initState() {
@@ -51,11 +62,69 @@ class _Step3MilestonesState extends State<Step3Milestones>
     widget.onValidChanged(isValid);
   }
 
+  // ── Auto-chain helpers ──────────────────────────────────────────────
+
+  /// Propagate endDate of milestone [msIndex] → startDate of milestone [msIndex+1].
+  /// Nếu startDate mới > endDate đợt sau → clear endDate & evidenceDueAt.
+  void _propagateEndDate(int msIndex) {
+    if (msIndex + 1 >= _milestones.length) return;
+
+    final current = _milestones[msIndex];
+    final next = _milestones[msIndex + 1];
+
+    next.startDate = current.endDate;
+
+    // Nếu startDate mới > endDate hiện tại của đợt sau → clear
+    if (next.startDate.isNotEmpty && next.endDate.isNotEmpty) {
+      final start = DateTime.tryParse(next.startDate);
+      final end = DateTime.tryParse(next.endDate);
+      if (start != null && end != null && !end.isAfter(start)) {
+        next.endDate = '';
+        next.evidenceDueAt = '';
+        // Tiếp tục propagate nếu đợt sau nữa cũng bị ảnh hưởng
+        _propagateEndDate(msIndex + 1);
+      }
+    }
+
+    // Nếu endDate bị clear → evidenceDate cũng phải clear
+    if (next.endDate.isEmpty) {
+      next.evidenceDueAt = '';
+    }
+  }
+
+  /// Re-chain tất cả startDate từ đầu dựa trên endDate đợt trước.
+  void _rechainAllDates() {
+    for (int i = 1; i < _milestones.length; i++) {
+      _milestones[i].startDate = _milestones[i - 1].endDate;
+
+      // Clear nếu startDate > endDate
+      if (_milestones[i].startDate.isNotEmpty &&
+          _milestones[i].endDate.isNotEmpty) {
+        final start = DateTime.tryParse(_milestones[i].startDate);
+        final end = DateTime.tryParse(_milestones[i].endDate);
+        if (start != null && end != null && !end.isAfter(start)) {
+          _milestones[i].endDate = '';
+          _milestones[i].evidenceDueAt = '';
+        }
+      }
+      if (_milestones[i].endDate.isEmpty) {
+        _milestones[i].evidenceDueAt = '';
+      }
+    }
+  }
+
+  // ── CRUD milestones ─────────────────────────────────────────────────
+
   void _addMilestone() {
     setState(() {
-      _milestones.add(
-        Milestone(title: 'Đợt giải ngân ${_milestones.length + 1}'),
+      final newMs = Milestone(
+        title: 'Đợt giải ngân ${_milestones.length + 1}',
       );
+      // Auto-chain: startDate = endDate đợt trước
+      if (_milestones.isNotEmpty) {
+        newMs.startDate = _milestones.last.endDate;
+      }
+      _milestones.add(newMs);
     });
     _validateAndNotify();
   }
@@ -67,13 +136,17 @@ class _Step3MilestonesState extends State<Step3Milestones>
       );
       return;
     }
-    setState(() => _milestones.removeAt(index));
+    setState(() {
+      _milestones.removeAt(index);
+      _rechainAllDates();
+    });
     _validateAndNotify();
   }
 
   void _addCategory(Milestone ms) {
     setState(() {
-      ms.categories.add(MilestoneCategory(name: 'Danh mục ${ms.categories.length + 1}'));
+      ms.categories
+          .add(MilestoneCategory(name: 'Danh mục ${ms.categories.length + 1}'));
     });
     _validateAndNotify();
   }
@@ -95,14 +168,32 @@ class _Step3MilestonesState extends State<Step3Milestones>
     _validateAndNotify();
   }
 
+  // ── Date picker ─────────────────────────────────────────────────────
+
   Future<DateTime?> _pickDate({DateTime? initial, DateTime? firstDate}) async {
     final now = DateTime.now();
+    final first = firstDate ?? now;
+    var initialDate = initial ?? first.add(const Duration(days: 1));
+    // Đảm bảo initialDate >= firstDate
+    if (initialDate.isBefore(first)) {
+      initialDate = first.add(const Duration(days: 1));
+    }
     return showDatePicker(
       context: context,
-      initialDate: initial ?? now.add(const Duration(days: 1)),
-      firstDate: firstDate ?? now,
+      initialDate: initialDate,
+      firstDate: first,
       lastDate: now.add(const Duration(days: 730)),
       locale: const Locale('vi'),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: Theme.of(context).colorScheme.copyWith(
+                  primary: _dateFocus,
+                ),
+          ),
+          child: child!,
+        );
+      },
     );
   }
 
@@ -111,6 +202,32 @@ class _Step3MilestonesState extends State<Step3Milestones>
     final dt = DateTime.tryParse(dateStr);
     return dt != null ? DateFormat('dd/MM/yyyy').format(dt) : dateStr;
   }
+
+  /// Lấy danh sách lỗi date cho milestone tại [msIndex].
+  List<String> _getDateErrors(int msIndex) {
+    final ms = _milestones[msIndex];
+    final errors = <String>[];
+
+    if (ms.startDate.isNotEmpty && ms.endDate.isNotEmpty) {
+      final start = DateTime.tryParse(ms.startDate);
+      final end = DateTime.tryParse(ms.endDate);
+      if (start != null && end != null && !end.isAfter(start)) {
+        errors.add('Ngày kết thúc phải sau ngày bắt đầu');
+      }
+    }
+
+    if (ms.endDate.isNotEmpty && ms.evidenceDueAt.isNotEmpty) {
+      final end = DateTime.tryParse(ms.endDate);
+      final evidence = DateTime.tryParse(ms.evidenceDueAt);
+      if (end != null && evidence != null && !evidence.isAfter(end)) {
+        errors.add('Hạn nộp minh chứng phải sau ngày kết thúc');
+      }
+    }
+
+    return errors;
+  }
+
+  // ── BUILD ───────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -146,7 +263,8 @@ class _Step3MilestonesState extends State<Step3Milestones>
           ),
           child: Row(
             children: [
-              const Icon(Icons.account_balance_wallet, color: Colors.white, size: 32),
+              const Icon(Icons.account_balance_wallet,
+                  color: Colors.white, size: 32),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -204,6 +322,8 @@ class _Step3MilestonesState extends State<Step3Milestones>
     final ms = _milestones[msIndex];
     final msAmount = ms.calculatedAmount;
     final errors = ms.validate();
+    final dateErrors = _getDateErrors(msIndex);
+    final isFirstMilestone = msIndex == 0;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -211,7 +331,8 @@ class _Step3MilestonesState extends State<Step3Milestones>
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: errors.isEmpty ? Colors.green.shade200 : Colors.orange.shade200,
+          color:
+              errors.isEmpty ? Colors.green.shade200 : Colors.orange.shade200,
         ),
       ),
       child: ExpansionTile(
@@ -272,48 +393,89 @@ class _Step3MilestonesState extends State<Step3Milestones>
           ),
           const SizedBox(height: 12),
 
-          // Ngày
+          // ── Ngày (auto-chain) ─────────────────────────────────
           Row(
             children: [
+              // ── startDate ──
               Expanded(
-                child: _buildDateChip(
-                  label: 'Bắt đầu',
-                  value: _formatDate(ms.startDate),
-                  onTap: () async {
-                    final d = await _pickDate();
-                    if (d != null) {
-                      setState(() => ms.startDate = DateFormat('yyyy-MM-dd').format(d));
-                      _validateAndNotify();
-                    }
-                  },
-                ),
+                child: isFirstMilestone
+                    ? _buildDateChip(
+                        label: 'Bắt đầu',
+                        value: _formatDate(ms.startDate),
+                        onTap: () async {
+                          final d = await _pickDate();
+                          if (d != null) {
+                            setState(() {
+                              ms.startDate = _dateFmt.format(d);
+                              // Nếu endDate trước startDate → clear
+                              if (ms.endDate.isNotEmpty) {
+                                final end = DateTime.tryParse(ms.endDate);
+                                if (end != null && !end.isAfter(d)) {
+                                  ms.endDate = '';
+                                  ms.evidenceDueAt = '';
+                                  _propagateEndDate(msIndex);
+                                }
+                              }
+                            });
+                            _validateAndNotify();
+                          }
+                        },
+                      )
+                    : _buildLockedDateChip(
+                        label: 'Bắt đầu',
+                        value: _formatDate(ms.startDate),
+                      ),
               ),
               const SizedBox(width: 8),
+
+              // ── endDate ──
               Expanded(
                 child: _buildDateChip(
                   label: 'Kết thúc',
                   value: _formatDate(ms.endDate),
+                  hasError: dateErrors.any((e) => e.contains('kết thúc')),
                   onTap: () async {
-                    final first = ms.startDate.isNotEmpty
+                    final firstDate = ms.startDate.isNotEmpty
                         ? DateTime.tryParse(ms.startDate)
+                            ?.add(const Duration(days: 1))
                         : null;
-                    final d = await _pickDate(firstDate: first);
+                    final d = await _pickDate(firstDate: firstDate);
                     if (d != null) {
-                      setState(() => ms.endDate = DateFormat('yyyy-MM-dd').format(d));
+                      setState(() {
+                        ms.endDate = _dateFmt.format(d);
+                        // Nếu evidenceDate trước endDate → clear
+                        if (ms.evidenceDueAt.isNotEmpty) {
+                          final ev = DateTime.tryParse(ms.evidenceDueAt);
+                          if (ev != null && !ev.isAfter(d)) {
+                            ms.evidenceDueAt = '';
+                          }
+                        }
+                        // Auto-chain: cập nhật startDate đợt tiếp theo
+                        _propagateEndDate(msIndex);
+                      });
                       _validateAndNotify();
                     }
                   },
                 ),
               ),
               const SizedBox(width: 8),
+
+              // ── evidenceDueAt ──
               Expanded(
                 child: _buildDateChip(
                   label: 'Nộp MC',
                   value: _formatDate(ms.evidenceDueAt),
+                  hasError: dateErrors.any((e) => e.contains('minh chứng')),
                   onTap: () async {
-                    final d = await _pickDate();
+                    final firstDate = ms.endDate.isNotEmpty
+                        ? DateTime.tryParse(ms.endDate)
+                            ?.add(const Duration(days: 1))
+                        : null;
+                    final d = await _pickDate(firstDate: firstDate);
                     if (d != null) {
-                      setState(() => ms.evidenceDueAt = DateFormat('yyyy-MM-dd').format(d));
+                      setState(() {
+                        ms.evidenceDueAt = _dateFmt.format(d);
+                      });
                       _validateAndNotify();
                     }
                   },
@@ -321,6 +483,58 @@ class _Step3MilestonesState extends State<Step3Milestones>
               ),
             ],
           ),
+
+          // ── Date errors ───────────────────────────────────────
+          if (dateErrors.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            ...dateErrors.map((e) => Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline,
+                          size: 14, color: _errorColor),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          e,
+                          style: const TextStyle(
+                            color: _errorColor,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
+          ],
+
+          // ── Auto-chain info badge ─────────────────────────────
+          if (!isFirstMilestone && ms.startDate.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7ED), // orange-50
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFFED7AA)), // orange-200
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.link, size: 14, color: Colors.orange.shade600),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Ngày bắt đầu tự động nối tiếp từ đợt ${msIndex}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.orange.shade700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
 
           // ── Categories ──────────────────────────────────────────
@@ -480,7 +694,8 @@ class _Step3MilestonesState extends State<Step3Milestones>
           // Header
           Row(
             children: [
-              Icon(Icons.inventory_2_outlined, size: 16, color: Colors.grey.shade500),
+              Icon(Icons.inventory_2_outlined,
+                  size: 16, color: Colors.grey.shade500),
               const SizedBox(width: 6),
               Text(
                 'Hạng mục ${itemIndex + 1}',
@@ -503,7 +718,8 @@ class _Step3MilestonesState extends State<Step3Milestones>
               const SizedBox(width: 4),
               InkWell(
                 onTap: () => _removeItem(cat, itemIndex),
-                child: Icon(Icons.remove_circle_outline, size: 18, color: Colors.red.shade400),
+                child: Icon(Icons.remove_circle_outline,
+                    size: 18, color: Colors.red.shade400),
               ),
             ],
           ),
@@ -643,10 +859,12 @@ class _Step3MilestonesState extends State<Step3Milestones>
     );
   }
 
+  /// Date chip cho editable fields.
   Widget _buildDateChip({
     required String label,
     required String value,
     required VoidCallback onTap,
+    bool hasError = false,
   }) {
     return InkWell(
       onTap: onTap,
@@ -654,7 +872,9 @@ class _Step3MilestonesState extends State<Step3Milestones>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
+          border: Border.all(
+            color: hasError ? _errorColor : _dateBorder,
+          ),
           borderRadius: BorderRadius.circular(8),
           color: Colors.white,
         ),
@@ -663,19 +883,26 @@ class _Step3MilestonesState extends State<Step3Milestones>
           children: [
             Text(
               label,
-              style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+              style: TextStyle(
+                fontSize: 10,
+                color: hasError ? _errorColor : Colors.grey.shade500,
+              ),
             ),
             const SizedBox(height: 2),
             Row(
               children: [
-                Icon(Icons.calendar_today, size: 12, color: Colors.grey.shade500),
+                Icon(Icons.calendar_today,
+                    size: 12,
+                    color: hasError ? _errorColor : Colors.grey.shade500),
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
                     value,
                     style: TextStyle(
                       fontSize: 12,
-                      color: value == 'Chọn' ? Colors.grey.shade400 : Colors.black87,
+                      color: value == 'Chọn'
+                          ? Colors.grey.shade400
+                          : Colors.black87,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -684,6 +911,56 @@ class _Step3MilestonesState extends State<Step3Milestones>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Date chip cho locked/readonly fields (auto-chained startDate).
+  Widget _buildLockedDateChip({
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      decoration: BoxDecoration(
+        border: Border.all(color: _dateBorder),
+        borderRadius: BorderRadius.circular(8),
+        color: _lockedBg,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: _lockedText,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(Icons.lock, size: 10, color: _lockedText),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              const Icon(Icons.calendar_today, size: 12, color: _lockedText),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: value == 'Chọn' ? Colors.grey.shade400 : _lockedText,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
