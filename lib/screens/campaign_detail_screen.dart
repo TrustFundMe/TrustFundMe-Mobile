@@ -18,7 +18,6 @@ import 'donation/vietqr_screen.dart';
 import 'feed_post_detail_screen.dart';
 import 'campaign_posts_screen.dart';
 import 'expenditure_detail_screen.dart';
-import 'chat_screen.dart';
 import '../widgets/flags/flag_reason_sheet.dart';
 import '../widgets/safe_network_avatar.dart';
 import '../core/utils/flag_error_resolver.dart';
@@ -613,27 +612,6 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     }
   }
 
-  Future<void> _openCampaignChat() async {
-    final auth = context.read<AuthProvider>();
-    if (auth.user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng đăng nhập để nhắn tin.')),
-      );
-      return;
-    }
-
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ChatScreen(
-          campaignId: _campaign.id,
-          campaignTitle: _campaign.title,
-          staffId: _campaign.assignedStaffId,
-          staffName: _campaign.assignedStaffName,
-        ),
-      ),
-    );
-  }
-
   Future<void> _handleDirectDonate() async {
     if (_donateAmount < 10000) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1218,12 +1196,6 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
               : 'Theo dõi ($_followerCount)',
           active: _followed,
           onTap: _toggleFollow,
-        ),
-        _actionChip(
-          icon: Icons.chat_bubble_outline,
-          label: 'Nhắn tin',
-          active: false,
-          onTap: _openCampaignChat,
         ),
         _actionChip(
           icon: _flagged ? Icons.flag : Icons.flag_outlined,
@@ -2116,22 +2088,31 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'Giai đoạn của chiến dịch',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: _dark,
+              const Expanded(
+                child: Text(
+                  'Giai đoạn của chiến dịch',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: _dark,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-              Text(
-                '$completed/${_plans.length} đợt đã hoàn thành',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: _muted,
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  '$completed/${_plans.length} đợt đã hoàn thành',
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: _muted,
+                  ),
                 ),
               ),
             ],
@@ -2493,83 +2474,84 @@ class _MilestoneItemState extends State<_MilestoneItem> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
+                      Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  widget.plan.title.toLowerCase().contains('đợt ${widget.index + 1}')
-                                      ? widget.plan.title
-                                      : 'Đợt ${widget.index + 1}: ${widget.plan.title}',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w800,
-                                    color: accent,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Row(
-                                  children: [
-                                    const Icon(Icons.calendar_today,
-                                        size: 10, color: _muted),
-                                    const SizedBox(width: 4),
-                                    Text(
-                                      widget.plan.date ?? 'Chưa xác định',
-                                      style: const TextStyle(
-                                          fontSize: 10, color: _muted),
-                                    ),
-                                  ],
-                                ),
-                              ],
+                          Text(
+                            widget.plan.title.toLowerCase().contains('đợt ${widget.index + 1}')
+                                ? widget.plan.title
+                                : 'Đợt ${widget.index + 1}: ${widget.plan.title}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: accent,
                             ),
                           ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                          const SizedBox(height: 2),
+                          Row(
                             children: [
-                              Text(
-                                '${_fmtMoney(widget.plan.amount)}đ',
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w900,
-                                  color: _dark,
+                              const Icon(Icons.calendar_today, size: 10, color: _muted),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  widget.plan.date ?? 'Chưa xác định',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 10, color: _muted),
                                 ),
                               ),
-                              Text(
-                                _statusLabel(widget.plan.status ?? ''),
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  color: accent,
-                                  letterSpacing: 0.3,
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '${_fmtMoney(widget.plan.amount)}đ',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w900,
+                                    color: _dark,
+                                  ),
                                 ),
                               ),
+                              const SizedBox(width: 8),
+                              const SizedBox.shrink(),
                             ],
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
-                      Row(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Text(
-                            _expanded ? 'Thu gọn' : 'Xem chi tiết hạng mục',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: accent,
-                            ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _expanded ? 'Thu gọn' : 'Xem chi tiết hạng mục',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: accent,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                _expanded
+                                    ? Icons.keyboard_arrow_up
+                                    : Icons.keyboard_arrow_down,
+                                size: 14,
+                                color: accent,
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 4),
-                          Icon(
-                            _expanded
-                                ? Icons.keyboard_arrow_up
-                                : Icons.keyboard_arrow_down,
-                            size: 14,
-                            color: accent,
-                          ),
-                          const Spacer(),
                           GestureDetector(
                             onTap: widget.onOpenDetail,
                             child: Container(

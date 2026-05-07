@@ -7,16 +7,7 @@ import '../core/providers/auth_provider.dart';
 import '../widgets/safe_network_avatar.dart';
 import 'email_verification_screen.dart';
 import 'login_screen.dart';
-import 'my_campaigns_screen.dart';
-import 'chat_list_screen.dart';
-import 'appointment_schedule_screen.dart';
-import 'my_flags_screen.dart';
-import 'my_feed_screen.dart';
-import 'kyc/kyc_screen.dart';
 import 'notifications/notification_screen.dart';
-import 'account/donation_history_screen.dart';
-import 'account/bank_accounts_screen.dart';
-import 'account/change_password_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -31,10 +22,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   
-  // Bank controllers
-  final _bankNameController = TextEditingController();
-  final _accountNumberController = TextEditingController();
-  final _accountHolderController = TextEditingController();
 
   // Colors matching the design system
   static const Color webPrimary = Color(0xFFF84D43);
@@ -56,16 +43,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _phoneController.text = user.phoneNumber ?? "";
     }
     
-    // Fetch bank account if not loaded
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await authProvider.fetchBankAccount();
-      final bank = authProvider.bankAccount;
-      if (bank != null) {
-        _bankNameController.text = bank.bankCode;
-        _accountNumberController.text = bank.accountNumber;
-        _accountHolderController.text = bank.accountHolderName;
-      }
-    });
   }
 
   @override
@@ -88,9 +65,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
-    _bankNameController.dispose();
-    _accountNumberController.dispose();
-    _accountHolderController.dispose();
     super.dispose();
   }
 
@@ -115,7 +89,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final user = authProvider.user;
-    final bank = authProvider.bankAccount;
 
     if (user == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -155,11 +128,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _isEditing = false;
                   _nameController.text = user.fullName;
                   _phoneController.text = user.phoneNumber ?? "";
-                  if (bank != null) {
-                    _bankNameController.text = bank.bankCode;
-                    _accountNumberController.text = bank.accountNumber;
-                    _accountHolderController.text = bank.accountHolderName;
-                  }
                 });
               } else {
                 // Toggle Edit
@@ -261,7 +229,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ),
                       const SizedBox(width: 8),
                       // KYC status badge
-                      _buildKycBadge(user.kycStatus ?? 'NOT_SUBMITTED'),
+                      _buildKycBadge(
+                        user.kycStatus ?? 'NOT_SUBMITTED',
+                        user.kycVerified,
+                      ),
                     ],
                   ),
                   // Trust Score
@@ -272,11 +243,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
             ),
-
-            const SizedBox(height: 16),
-
-            // KYC Verification Card
-            _buildKycCard(user.kycStatus ?? 'NOT_SUBMITTED', user.kycVerified),
 
             const SizedBox(height: 16),
 
@@ -302,35 +268,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ]),
 
-            const SizedBox(height: 16),
-
-            // Bank Details Section
-            _buildSectionTitle("THIẾT LẬP TÀI CHÍNH"),
-            _buildProfileSection([
-              _buildEditableRow(
-                icon: Icons.account_balance_outlined,
-                label: "Ngân hàng liên kết",
-                controller: _bankNameController,
-                isEditing: _isEditing,
-                hintText: "Nhập tên ngân hàng (VD: MB Bank)",
-              ),
-              _buildEditableRow(
-                icon: Icons.account_circle_outlined,
-                label: "Tên chủ tài khoản",
-                controller: _accountHolderController,
-                isEditing: _isEditing,
-                hintText: "Nhập họ và tên",
-              ),
-              _buildEditableRow(
-                icon: Icons.numbers,
-                label: "Số tài khoản",
-                controller: _accountNumberController,
-                isEditing: _isEditing,
-                keyboardType: TextInputType.number,
-                hintText: "Nhập số tài khoản/thẻ",
-              ),
-            ]),
-
             const SizedBox(height: 24),
 
             // Save changes button (only visible when editing)
@@ -352,9 +289,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       onPressed: authProvider.isLoading ? null : () async {
                         final String fullName = _nameController.text.trim();
                         final String phone = _phoneController.text.trim();
-                        final String bankName = _bankNameController.text.trim();
-                        final String accountNumber = _accountNumberController.text.trim();
-                        final String accountHolder = _accountHolderController.text.trim();
 
                         if (fullName.isEmpty) {
                           if (!context.mounted) return;
@@ -364,56 +298,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           return;
                         }
 
-                        final bool hasAnyBankField = bankName.isNotEmpty ||
-                            accountNumber.isNotEmpty ||
-                            accountHolder.isNotEmpty;
-                        final bool hasAllBankFields = bankName.isNotEmpty &&
-                            accountNumber.isNotEmpty &&
-                            accountHolder.isNotEmpty;
-
-                        if (hasAnyBankField && !hasAllBankFields) {
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text("Vui lòng nhập đầy đủ 3 trường thông tin ngân hàng."),
-                            ),
-                          );
-                          return;
-                        }
-
-                        if (accountNumber.isNotEmpty &&
-                            !RegExp(r'^[0-9]{6,30}$').hasMatch(accountNumber)) {
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text("Số tài khoản chỉ gồm chữ số (6-30 ký tự)."),
-                            ),
-                          );
-                          return;
-                        }
-
-                        // 1. Update Profile info
+                        // Update profile info only
                         final profileSuccess = await authProvider.updateProfile(
                           fullName,
                           phone,
                         );
-                        
-                        // 2. Update Bank info
-                        bool bankSuccess = true;
-                        if (hasAllBankFields) {
-                          bankSuccess = await authProvider.saveBankAccount(
-                            bankName,
-                            accountNumber,
-                            accountHolder,
-                          );
-                        }
 
-                        if (profileSuccess && bankSuccess) {
+                        if (profileSuccess) {
                           if (!context.mounted) return;
                           setState(() => _isEditing = false);
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text("Đã cập nhật hồ sơ và thông tin ngân hàng!"),
+                              content: Text("Đã cập nhật thông tin cá nhân!"),
                             ),
                           );
                         }
@@ -441,118 +337,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
 
             const SizedBox(height: 8),
-
-            // Quick Access Section
-            _buildSectionTitle("TRUY CẬP NHANH"),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 2.2,
-                children: [
-                  _buildQuickAction(
-                    icon: Icons.notifications_outlined,
-                    title: "Thông báo",
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const NotificationScreen()),
-                      );
-                    },
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.chat_bubble_outline,
-                    title: "Chat",
-                    onTap: () {
-                      debugPrint("ProfileScreen: Chat button tapped!");
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Đang mở hộp thoại tin nhắn..."), duration: Duration(seconds: 1),),
-                      );
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const ChatListScreen()),
-                      );
-                    },
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.folder_open_outlined,
-                    title: "Chiến dịch của tôi",
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const MyCampaignsScreen()),
-                      );
-                    },
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.article_outlined,
-                    title: "Bài viết của tôi",
-                    onTap: () {
-                      if (!authProvider.isLoggedIn) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text("Đăng nhập để xem bài viết của bạn."),
-                          ),
-                        );
-                        return;
-                      }
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const MyFeedScreen()),
-                      );
-                    },
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.calendar_month_outlined,
-                    title: "Lịch hẹn",
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const AppointmentScheduleScreen()),
-                      );
-                    },
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.flag_outlined,
-                    title: "Tố cáo của tôi",
-                    onTap: () => showMyFlagsBottomSheet(context),
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.history,
-                    title: "Lịch sử quyên góp",
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const DonationHistoryScreen()),
-                      );
-                    },
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.account_balance_outlined,
-                    title: "Tài khoản ngân hàng",
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const BankAccountsScreen()),
-                      );
-                    },
-                  ),
-                  _buildQuickAction(
-                    icon: Icons.lock_outline,
-                    title: "Đổi mật khẩu",
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => const ChangePasswordScreen()),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-
             const SizedBox(height: 32),
 
             // Log Out Button
@@ -589,36 +373,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // ─── KYC Badge ───────────────────────────────────────────────────────────────
-  Widget _buildKycBadge(String status) {
+  Widget _buildKycBadge(String status, bool isKycVerified) {
     Color bgColor;
     Color textColor;
     String label;
     IconData icon;
 
-    switch (status) {
-      case 'APPROVED':
-        bgColor = webEmerald.withOpacity(0.1);
-        textColor = webEmerald;
-        label = 'Đã xác minh';
-        icon = Icons.verified;
-        break;
-      case 'PENDING':
-        bgColor = webAmber.withOpacity(0.1);
-        textColor = webAmber;
-        label = 'Chờ duyệt';
-        icon = Icons.hourglass_top;
-        break;
-      case 'REJECTED':
-        bgColor = Colors.red.withOpacity(0.1);
-        textColor = Colors.red;
-        label = 'Bị từ chối';
-        icon = Icons.cancel;
-        break;
-      default:
-        bgColor = Colors.grey.withOpacity(0.1);
-        textColor = webTextGray;
-        label = 'Chưa xác minh';
-        icon = Icons.shield_outlined;
+    if (isKycVerified || status == 'APPROVED') {
+      bgColor = webEmerald.withOpacity(0.1);
+      textColor = webEmerald;
+      label = 'Đã xác minh';
+      icon = Icons.verified;
+    } else {
+      switch (status) {
+        case 'PENDING':
+          bgColor = webAmber.withOpacity(0.1);
+          textColor = webAmber;
+          label = 'Chờ duyệt';
+          icon = Icons.hourglass_top;
+          break;
+        case 'REJECTED':
+          bgColor = Colors.red.withOpacity(0.1);
+          textColor = Colors.red;
+          label = 'Bị từ chối';
+          icon = Icons.cancel;
+          break;
+        default:
+          bgColor = Colors.grey.withOpacity(0.1);
+          textColor = webTextGray;
+          label = 'Chưa xác minh';
+          icon = Icons.shield_outlined;
+      }
     }
 
     return Container(
@@ -677,157 +462,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  // ─── KYC Verification Card ──────────────────────────────────────────────────
-  Widget _buildKycCard(String status, bool kycVerified) {
-    if (kycVerified || status == 'APPROVED') {
-      // Đã xác minh → compact card
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: webEmerald.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: webEmerald.withOpacity(0.2)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: webEmerald.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(Icons.verified_user, color: webEmerald, size: 24),
-              ),
-              const SizedBox(width: 14),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Danh tính đã xác minh',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: webEmerald,
-                      ),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Tài khoản của bạn đã được xác minh KYC.',
-                      style: TextStyle(fontSize: 12, color: webTextGray),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.check_circle, color: webEmerald),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // Chưa xác minh / bị từ chối / đang chờ → CTA card
-    final bool isPending = status == 'PENDING';
-    final bool isRejected = status == 'REJECTED';
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const KycScreen()),
-          );
-        },
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isRejected
-                  ? Colors.red.withOpacity(0.3)
-                  : isPending
-                      ? webAmber.withOpacity(0.3)
-                      : webPrimary.withOpacity(0.2),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: isRejected
-                      ? Colors.red.withOpacity(0.1)
-                      : isPending
-                          ? webAmber.withOpacity(0.1)
-                          : webPrimary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  isRejected
-                      ? Icons.gpp_bad
-                      : isPending
-                          ? Icons.hourglass_top
-                          : Icons.shield_outlined,
-                  color: isRejected
-                      ? Colors.red
-                      : isPending
-                          ? webAmber
-                          : webPrimary,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isPending
-                          ? 'Đang chờ xác minh'
-                          : isRejected
-                              ? 'Xác minh bị từ chối'
-                              : 'Xác minh danh tính',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: isRejected ? Colors.red : webTextDark,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      isPending
-                          ? 'Hồ sơ đang được xem xét...'
-                          : isRejected
-                              ? 'Nhấn để cập nhật và gửi lại.'
-                              : 'Hoàn tất KYC để tạo chiến dịch.',
-                      style: const TextStyle(fontSize: 12, color: webTextGray),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                Icons.arrow_forward_ios,
-                size: 16,
-                color: webTextGray.withOpacity(0.5),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -1035,40 +669,4 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildQuickAction({
-    required IconData icon,
-    required String title,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(16),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: webBorderGray),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: webPrimary),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.bold,
-                  color: webTextDark,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

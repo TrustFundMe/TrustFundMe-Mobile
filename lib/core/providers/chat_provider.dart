@@ -49,7 +49,11 @@ class ChatProvider extends ChangeNotifier {
   }
 
   // 2. Load or Create Conversation
-  Future<void> initConversation(int campaignId, int? passedStaffId) async {
+  Future<void> initConversation(
+    int campaignId,
+    int? passedStaffId, {
+    int? fundOwnerIdOverride,
+  }) async {
     _isLoading = true;
     _currentConversation = null;
     _messages = [];
@@ -63,6 +67,7 @@ class ChatProvider extends ChangeNotifier {
         debugPrint("ChatProvider: User ID is null, cannot init conversation");
         return;
       }
+      final int conversationFundOwnerId = fundOwnerIdOverride ?? currentUserId;
 
       int? finalStaffId = passedStaffId;
 
@@ -99,7 +104,7 @@ class ChatProvider extends ChangeNotifier {
         // If 404, we create
         debugPrint("Conversation not found, creating new one...");
         final createRes = await _apiService.createConversation(
-          fundOwnerId: currentUserId,
+          fundOwnerId: conversationFundOwnerId,
           campaignId: campaignId,
           staffId: finalStaffId,
         );

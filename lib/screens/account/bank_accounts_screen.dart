@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../../core/api/campaign_service.dart';
 import '../../core/api/user_service.dart';
 import '../../core/models/bank_account_model.dart';
+import '../../core/models/campaign_model.dart';
+import '../campaign_detail_screen.dart';
 
 /// Màn hình quản lý tài khoản ngân hàng.
 class BankAccountsScreen extends StatefulWidget {
@@ -366,24 +368,32 @@ class _BankAccountsScreenState extends State<BankAccountsScreen> {
                 // Hiển thị tên chiến dịch liên kết
                 if (account.campaignId != null) ...[
                   const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.campaign_outlined,
-                          size: 13, color: _primary),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          'Chiến dịch: ${account.campaignTitle ?? '#${account.campaignId}'}',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: _primary,
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _openLinkedCampaign(account),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.campaign_outlined,
+                              size: 13, color: _primary),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              'Chiến dịch: ${account.campaignTitle ?? '#${account.campaignId}'}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: _primary,
+                                decoration: TextDecoration.underline,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ],
                 if (account.isVerified) ...[
@@ -404,28 +414,32 @@ class _BankAccountsScreenState extends State<BankAccountsScreen> {
               ],
             ),
           ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert, color: _textGray),
-            onSelected: (action) {
-              if (action == 'edit') {
-                _openAddEditSheet(existing: account);
-              }
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem(
-                  value: 'edit',
-                  child: Row(
-                    children: [
-                      Icon(Icons.edit_outlined, size: 18),
-                      SizedBox(width: 8),
-                      Text('Chỉnh sửa'),
-                    ],
-                  )),
-            ],
-          ),
+          const SizedBox.shrink(),
         ],
       ),
     );
+  }
+
+  Future<void> _openLinkedCampaign(BankAccountModel account) async {
+    final int? campaignId = account.campaignId;
+    if (campaignId == null) return;
+
+    try {
+      final res = await _campaignService.getCampaign(campaignId);
+      if (res.statusCode == 200 && res.data is Map<String, dynamic>) {
+        final campaign = CampaignModel.fromJson(res.data as Map<String, dynamic>);
+        if (!mounted) return;
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => CampaignDetailScreen(campaign: campaign),
+          ),
+        );
+        return;
+      }
+      _snack('Không mở được chiến dịch liên kết.', isError: true);
+    } catch (_) {
+      _snack('Không mở được chiến dịch liên kết.', isError: true);
+    }
   }
 
   String _maskAccountNumber(String number) {

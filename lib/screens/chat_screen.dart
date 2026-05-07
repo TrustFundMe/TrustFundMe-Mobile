@@ -11,6 +11,7 @@ import 'campaign_detail_screen.dart';
 class ChatScreen extends StatefulWidget {
   final int campaignId;
   final String campaignTitle;
+  final int? fundOwnerId;
   final int? staffId;
   final String? staffName;
 
@@ -18,6 +19,7 @@ class ChatScreen extends StatefulWidget {
     super.key,
     required this.campaignId,
     required this.campaignTitle,
+    this.fundOwnerId,
     this.staffId,
     this.staffName,
   });
@@ -39,7 +41,11 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _displayCampaignTitle = widget.campaignTitle;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ChatProvider>().initConversation(widget.campaignId, widget.staffId);
+      context.read<ChatProvider>().initConversation(
+            widget.campaignId,
+            widget.staffId,
+            fundOwnerIdOverride: widget.fundOwnerId,
+          );
     });
     _resolveCampaignTitleIfNeeded();
   }
